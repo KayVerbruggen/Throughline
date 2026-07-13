@@ -1,20 +1,46 @@
 import type { ArtifactKind, Project } from "../types";
 
 const PREFIX: Record<ArtifactKind, string> = {
+  stakeholder: "SH",
   need: "N",
   "use-case": "UC",
   requirement: "R",
+  component: "C",
+  flow: "FL",
 };
 
 function idsForKind(project: Project, kind: ArtifactKind): string[] {
   switch (kind) {
+    case "stakeholder":
+      return project.stakeholders.map((s) => s.id);
     case "need":
       return project.needs.map((n) => n.id);
     case "use-case":
       return project.useCases.map((u) => u.id);
     case "requirement":
       return project.requirements.map((r) => r.id);
+    case "component":
+      return project.components.map((c) => c.id);
+    case "flow":
+      return project.flows.map((f) => f.id);
   }
+}
+
+/** Every activity id in use across all components. */
+function allActivityIds(project: Project): string[] {
+  return project.components.flatMap((c) => c.activities.map((a) => a.id));
+}
+
+/** Next unused project-wide activity id, e.g. "ACT-004". */
+export function nextActivityId(project: Project): string {
+  const n = maxNumber(allActivityIds(project), "ACT") + 1;
+  return `ACT-${String(n).padStart(3, "0")}`;
+}
+
+/** Next alternate-path id within a flow, e.g. "AP-3". */
+export function nextAltId(existing: string[]): string {
+  const n = maxNumber(existing, "AP") + 1;
+  return `AP-${n}`;
 }
 
 /** Highest numeric suffix currently used for a kind (0 if none). */

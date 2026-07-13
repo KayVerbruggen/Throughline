@@ -11,13 +11,16 @@ import {
   type Status,
 } from "../../types";
 import { Icon, type IconName } from "../icons";
-import { NeedBody, RequirementBody, UseCaseBody } from "./bodies";
+import { ComponentBody, FlowBody, NeedBody, RequirementBody, StakeholderBody, UseCaseBody } from "./bodies";
 import { Select } from "./fields";
 
 const TYPE_META: Record<ArtifactKind, { label: string; icon: IconName }> = {
+  stakeholder: { label: "Stakeholder", icon: "stakeholder" },
   need: { label: "Need", icon: "need" },
   "use-case": { label: "Use Case", icon: "use-case" },
   requirement: { label: "Requirement", icon: "requirement" },
+  component: { label: "Component", icon: "structure" },
+  flow: { label: "Flow", icon: "behavior" },
 };
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -43,13 +46,19 @@ export function DetailPanel() {
 
   if (!selection) return null;
 
-  const list =
-    selection.kind === "need"
-      ? project.needs
-      : selection.kind === "use-case"
-        ? project.useCases
-        : project.requirements;
-  const artifact = (list as Artifact[]).find((a) => a.id === selection.id);
+  const list: Artifact[] =
+    selection.kind === "stakeholder"
+      ? project.stakeholders
+      : selection.kind === "need"
+        ? project.needs
+        : selection.kind === "use-case"
+          ? project.useCases
+          : selection.kind === "requirement"
+            ? project.requirements
+            : selection.kind === "component"
+              ? project.components
+              : project.flows;
+  const artifact = list.find((a) => a.id === selection.id);
   if (!artifact) return null;
 
   const meta = TYPE_META[artifact.kind];
@@ -58,7 +67,9 @@ export function DetailPanel() {
       ? needWarning(project, artifact)
       : artifact.kind === "use-case"
         ? useCaseWarning(artifact)
-        : requirementWarning(artifact);
+        : artifact.kind === "requirement"
+          ? requirementWarning(artifact)
+          : null;
 
   const onDelete = () => {
     if (window.confirm(`Delete ${artifact.id} — “${artifact.title}”? This cannot be undone.`)) {
@@ -150,25 +161,37 @@ export function DetailPanel() {
             onChange={(v) => updateSelected({ title: v } as Partial<Artifact>)}
           />
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 22 }}>
-            <div>
-              <div style={labelStyle}>Status</div>
-              <Select<Status>
-                value={artifact.status}
-                onChange={(v) => updateSelected({ status: v } as Partial<Artifact>)}
-                options={STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
-              />
+          {/* Only the prioritised spine artifacts carry status/priority.
+              Stakeholders, components and flows don't. */}
+          {(artifact.kind === "need" ||
+            artifact.kind === "use-case" ||
+            artifact.kind === "requirement") && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 22 }}>
+              <div>
+                <div style={labelStyle}>Status</div>
+                <Select<Status>
+                  value={artifact.status}
+                  onChange={(v) => updateSelected({ status: v } as Partial<Artifact>)}
+                  options={STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
+                />
+              </div>
+              <div>
+                <div style={labelStyle}>Priority (MoSCoW)</div>
+                <Select<Moscow>
+                  value={artifact.moscow}
+                  onChange={(v) => updateSelected({ moscow: v } as Partial<Artifact>)}
+                  options={MOSCOWS.map((m) => ({ value: m, label: MOSCOW_LABEL[m] }))}
+                />
+              </div>
             </div>
-            <div>
-              <div style={labelStyle}>Priority (MoSCoW)</div>
-              <Select<Moscow>
-                value={artifact.moscow}
-                onChange={(v) => updateSelected({ moscow: v } as Partial<Artifact>)}
-                options={MOSCOWS.map((m) => ({ value: m, label: MOSCOW_LABEL[m] }))}
-              />
-            </div>
-          </div>
+          )}
 
+          {artifact.kind === "stakeholder" && (
+            <StakeholderBody
+              stakeholder={artifact}
+              update={(patch) => updateSelected(patch as Partial<Artifact>)}
+            />
+          )}
           {artifact.kind === "need" && (
             <NeedBody
               need={artifact}
@@ -176,7 +199,11 @@ export function DetailPanel() {
             />
           )}
           {artifact.kind === "use-case" && (
-            <UseCaseBody uc={artifact} onOpenNeed={(id) => select("need", id)} />
+            <UseCaseBody
+              uc={artifact}
+              update={(patch) => updateSelected(patch as Partial<Artifact>)}
+              onOpenNeed={(id) => select("need", id)}
+            />
           )}
           {artifact.kind === "requirement" && (
             <RequirementBody
@@ -184,6 +211,17 @@ export function DetailPanel() {
               update={(patch) => updateSelected(patch as Partial<Artifact>)}
               onOpenUseCase={(id) => select("use-case", id)}
             />
+          )}
+          {artifact.kind === "component" && (
+            <ComponentBody
+              component={artifact}
+              update={(patch) => updateSelected(patch as Partial<Artifact>)}
+              onOpenUseCase={(id) => select("use-case", id)}
+              onOpenRequirement={(id) => select("requirement", id)}
+            />
+          )}
+          {artifact.kind === "flow" && (
+            <FlowBody flow={artifact} onOpenUseCase={(id) => select("use-case", id)} />
           )}
         </div>
       </div>

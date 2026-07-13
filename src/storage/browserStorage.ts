@@ -3,7 +3,11 @@ import { emptyProject } from "../types";
 import type { StorageAdapter } from "./adapter";
 import { seedProject } from "./seed";
 
-const KEY = "throughline.project";
+// Bumped whenever the seed's shape changes so a stale cached project re-seeds
+// rather than loading a value missing newer collections:
+//   .v2 — Stakeholders became first-class
+//   .v3 — Components + Flows (System Structure / Behavior)
+const KEY = "throughline.project.v3";
 
 /**
  * Browser fallback: keeps the whole project as JSON in localStorage, seeded
@@ -63,12 +67,18 @@ export class BrowserStorage implements StorageAdapter {
 
 function bucket(project: Project, kind: Artifact["kind"]): Artifact[] {
   switch (kind) {
+    case "stakeholder":
+      return project.stakeholders;
     case "need":
       return project.needs;
     case "use-case":
       return project.useCases;
     case "requirement":
       return project.requirements;
+    case "component":
+      return project.components;
+    case "flow":
+      return project.flows;
   }
 }
 

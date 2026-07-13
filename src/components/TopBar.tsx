@@ -4,6 +4,7 @@ import { useStore, type ViewId } from "../state/store";
 import { Icon } from "./icons";
 
 const TITLES: Record<ViewId, string> = {
+  stakeholders: "Stakeholders",
   needs: "Needs",
   "use-cases": "Use Cases",
   requirements: "Requirements",
@@ -13,9 +14,11 @@ const TITLES: Record<ViewId, string> = {
 };
 
 const NEW_LABEL: Partial<Record<ViewId, string>> = {
+  stakeholders: "New Stakeholder",
   needs: "New Need",
   "use-cases": "New Use Case",
   requirements: "New Requirement",
+  structure: "New Component",
 };
 
 export function TopBar() {
@@ -31,20 +34,26 @@ export function TopBar() {
   const [newHover, setNewHover] = useState(false);
 
   const count =
-    view === "needs"
-      ? project.needs.length
-      : view === "use-cases"
-        ? project.useCases.length
-        : view === "requirements"
-          ? project.requirements.length
-          : null;
+    view === "stakeholders"
+      ? project.stakeholders.length
+      : view === "needs"
+        ? project.needs.length
+        : view === "use-cases"
+          ? project.useCases.length
+          : view === "requirements"
+            ? project.requirements.length
+            : view === "structure"
+              ? project.components.length
+              : null;
 
   const newLabel = NEW_LABEL[view];
 
   const onNew = () => {
-    if (view === "needs") createArtifact("need");
+    if (view === "stakeholders") createArtifact("stakeholder");
+    else if (view === "needs") createArtifact("need");
     else if (view === "use-cases") createArtifact("use-case");
     else if (view === "requirements") createArtifact("requirement");
+    else if (view === "structure") createArtifact("component");
   };
 
   return (

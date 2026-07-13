@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 export function FieldLabel({ children, hint }: { children: ReactNode; hint?: string }) {
   return (
@@ -56,6 +56,46 @@ export function TextInput({
         borderColor: focus ? "oklch(0.6 0.12 258)" : "rgba(var(--line),.12)",
       }}
     />
+  );
+}
+
+/** Input backed by a datalist: pick from known values or type a new one. */
+export function Combobox({
+  value,
+  onChange,
+  options,
+  placeholder,
+  mono,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+  mono?: boolean;
+}) {
+  const [focus, setFocus] = useState(false);
+  const listId = useId();
+  return (
+    <>
+      <input
+        list={listId}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
+        style={{
+          ...BASE_INPUT,
+          font: `400 13px '${mono ? "IBM Plex Mono" : "IBM Plex Sans"}'`,
+          borderColor: focus ? "oklch(0.6 0.12 258)" : "rgba(var(--line),.12)",
+        }}
+      />
+      <datalist id={listId}>
+        {options.map((o) => (
+          <option key={o} value={o} />
+        ))}
+      </datalist>
+    </>
   );
 }
 

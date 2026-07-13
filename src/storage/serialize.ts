@@ -6,18 +6,25 @@
 // deterministic so round-tripping a file leaves a minimal, stable diff.
 // ---------------------------------------------------------------------------
 
+import { composeEars } from "../model/ears";
 import { buildFile, splitFrontmatter } from "../model/frontmatter";
 import {
   MOSCOWS,
   STATUSES,
   EARS_PATTERNS,
-  type AlternateFlow,
+  STAKEHOLDER_TYPES,
+  type Activity,
+  type AltPath,
   type Artifact,
   type ArtifactKind,
+  type Component,
   type EarsPattern,
+  type Flow,
   type Moscow,
   type Need,
   type Requirement,
+  type Stakeholder,
+  type StakeholderType,
   type Status,
   type UseCase,
   type UserStory,
@@ -53,6 +60,10 @@ function moscow(v: unknown): Moscow {
   return oneOf<Moscow>(v, MOSCOWS, "should");
 }
 
+function stakeholderType(v: unknown): StakeholderType {
+  return oneOf<StakeholderType>(v, STAKEHOLDER_TYPES, "primary");
+}
+
 function ears(v: unknown): EarsPattern {
   // Accept both canonical slugs and a few historical aliases.
   const aliases: Record<string, EarsPattern> = {
@@ -65,56 +76,34 @@ function ears(v: unknown): EarsPattern {
   return oneOf<EarsPattern>(v, EARS_PATTERNS, "ubiquitous");
 }
 
-// --- use-case body <-> mainFlow / altFlows ----------------------------------
-
-function parseUseCaseBody(body: string): { mainFlow: string[]; altFlows: AlternateFlow[] } {
-  const mainFlow: string[] = [];
-  const altFlows: AlternateFlow[] = [];
-  let section: "main" | "alt" | null = null;
-
-  for (const rawLine of body.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (/^##\s+main flow/i.test(line)) {
-      section = "main";
-      continue;
-    }
-    if (/^##\s+alternate flows?/i.test(line)) {
-      section = "alt";
-      continue;
-    }
-    if (/^##\s+/.test(line)) {
-      section = null;
-      continue;
-    }
-    if (!line) continue;
-
-    if (section === "main") {
-      const m = line.match(/^\d+[.)]\s+(.*)$/);
-      if (m) mainFlow.push(m[1].trim());
-    } else if (section === "alt") {
-      const m = line.match(/^[-*]\s+(.*)$/);
-      if (m) {
-        const step = m[1].match(/^at step\s+(\d+)[,:]?\s*(.*)$/i);
-        if (step) altFlows.push({ step: parseInt(step[1], 10), text: step[2].trim() });
-        else altFlows.push({ step: 0, text: m[1].trim() });
-      }
-    }
-  }
-  return { mainFlow, altFlows };
+function num(v: unknown, fallback: number): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
+  return fallback;
 }
 
-function buildUseCaseBody(uc: UseCase): string {
-  const parts: string[] = [];
-  parts.push("## Main flow");
-  uc.mainFlow.forEach((s, i) => parts.push(`${i + 1}. ${s}`));
-  if (uc.altFlows.length > 0) {
-    parts.push("");
-    parts.push("## Alternate flows");
-    for (const a of uc.altFlows) {
-      parts.push(a.step > 0 ? `- At step ${a.step}, ${a.text}` : `- ${a.text}`);
-    }
-  }
-  return parts.join("\n");
+function parseActivities(v: unknown): Activity[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((raw, i) => {
+      const o = (raw ?? {}) as Record<string, unknown>;
+      return { id: str(o.id, `ACT-${String(i + 1).padStart(3, "0")}`), label: str(o.label) };
+    })
+    .filter((a) => a.id.length > 0);
+}
+
+function parseAlternates(v: unknown): AltPath[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((raw, i) => {
+    const o = (raw ?? {}) as Record<string, unknown>;
+    return {
+      id: str(o.id, `AP-${i + 1}`),
+      condition: str(o.condition),
+      after: num(o.after, 0),
+      rejoin: num(o.rejoin, -1),
+      steps: strArray(o.steps),
+    } satisfies AltPath;
+  });
 }
 
 function parseStories(v: unknown): UserStory[] {
@@ -136,26 +125,37 @@ export function parseArtifact(kind: ArtifactKind, filename: string, raw: string)
   const { data, body } = splitFrontmatter(raw);
   const fallbackId = filename.replace(/\.md$/i, "");
   const id = str(data.id, fallbackId);
+  const created = data.created != null ? str(data.created) : undefined;
   const base = {
     id,
     title: str(data.title, id),
     status: status(data.status),
     moscow: moscow(data.moscow),
-    created: data.created != null ? str(data.created) : undefined,
+    created,
   };
 
   switch (kind) {
+    case "stakeholder":
+      return {
+        kind: "stakeholder",
+        id,
+        title: str(data.title, id),
+        type: stakeholderType(data.type),
+        body,
+        created,
+      } satisfies Stakeholder;
+
     case "need":
       return {
         ...base,
         kind: "need",
+        stakeholder: str(data.stakeholder),
         source: data.source != null ? str(data.source) : undefined,
         tags: strArray(data.tags),
         body,
       } satisfies Need;
 
-    case "use-case": {
-      const flows = parseUseCaseBody(body);
+    case "use-case":
       return {
         ...base,
         kind: "use-case",
@@ -163,20 +163,46 @@ export function parseArtifact(kind: ArtifactKind, filename: string, raw: string)
         actors: strArray(data.actors),
         stories: parseStories(data.stories),
         preconditions: strArray(data.preconditions),
-        mainFlow: flows.mainFlow,
-        altFlows: flows.altFlows,
+        flow: str(data.flow),
       } satisfies UseCase;
-    }
 
-    case "requirement":
+    case "requirement": {
+      // Prefer structured slots; fall back to the legacy statement body so
+      // nothing is lost when reading a pre-structured file.
+      const structured = data.subject != null || data.action != null || data.condition != null;
       return {
         ...base,
         kind: "requirement",
         trace: strArray(data.trace),
         format: "EARS",
         ears: ears(data.ears_pattern ?? data.ears),
-        body,
+        condition: str(data.condition),
+        subject: str(data.subject),
+        action: structured ? str(data.action) : body.trim(),
+        object: str(data.object),
+        constraint: str(data.constraint),
       } satisfies Requirement;
+    }
+
+    case "component":
+      return {
+        kind: "component",
+        id,
+        title: str(data.title, id),
+        description: body,
+        activities: parseActivities(data.activities),
+        created,
+      } satisfies Component;
+
+    case "flow":
+      return {
+        kind: "flow",
+        id,
+        title: str(data.title, id),
+        main: strArray(data.main),
+        alternates: parseAlternates(data.alternates),
+        created,
+      } satisfies Flow;
   }
 }
 
@@ -184,6 +210,16 @@ export function parseArtifact(kind: ArtifactKind, filename: string, raw: string)
 
 export function serializeArtifact(a: Artifact): string {
   switch (a.kind) {
+    case "stakeholder": {
+      const data: Record<string, unknown> = {
+        id: a.id,
+        title: a.title,
+        type: a.type,
+      };
+      if (a.created) data.created = a.created;
+      return buildFile(data, a.body);
+    }
+
     case "need": {
       const data: Record<string, unknown> = {
         id: a.id,
@@ -191,6 +227,7 @@ export function serializeArtifact(a: Artifact): string {
         status: a.status,
         moscow: a.moscow,
       };
+      if (a.stakeholder) data.stakeholder = a.stakeholder;
       if (a.source) data.source = a.source;
       if (a.tags.length) data.tags = a.tags;
       if (a.created) data.created = a.created;
@@ -213,8 +250,11 @@ export function serializeArtifact(a: Artifact): string {
         })),
         preconditions: a.preconditions,
       };
+      if (a.flow) data.flow = a.flow;
       if (a.created) data.created = a.created;
-      return buildFile(data, buildUseCaseBody(a));
+      // The flow (behaviour) itself is a separate artifact; the use case only
+      // references it. No body content.
+      return buildFile(data, "");
     }
 
     case "requirement": {
@@ -225,10 +265,48 @@ export function serializeArtifact(a: Artifact): string {
         trace: a.trace,
         format: "EARS",
         ears_pattern: a.ears,
-        moscow: a.moscow,
       };
+      if (a.condition) data.condition = a.condition;
+      data.subject = a.subject;
+      data.action = a.action;
+      if (a.object) data.object = a.object;
+      if (a.constraint) data.constraint = a.constraint;
+      data.moscow = a.moscow;
       if (a.created) data.created = a.created;
-      return buildFile(data, a.body);
+      // Body is the generated statement — human-readable, never authored directly.
+      return buildFile(data, composeEars(a));
+    }
+
+    case "component": {
+      const data: Record<string, unknown> = {
+        id: a.id,
+        title: a.title,
+      };
+      if (a.activities.length) {
+        data.activities = a.activities.map((act) => ({ id: act.id, label: act.label }));
+      }
+      if (a.created) data.created = a.created;
+      // Description is the markdown body.
+      return buildFile(data, a.description);
+    }
+
+    case "flow": {
+      const data: Record<string, unknown> = {
+        id: a.id,
+        title: a.title,
+        main: a.main,
+      };
+      if (a.alternates.length) {
+        data.alternates = a.alternates.map((alt) => ({
+          id: alt.id,
+          condition: alt.condition,
+          after: alt.after,
+          rejoin: alt.rejoin,
+          steps: alt.steps,
+        }));
+      }
+      if (a.created) data.created = a.created;
+      return buildFile(data, "");
     }
   }
 }

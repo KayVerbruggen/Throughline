@@ -6,9 +6,12 @@
 //!
 //! ```text
 //! <project>/
+//!   stakeholders/   SH-001.md, SH-002.md, ...
 //!   needs/          N-001.md, N-002.md, ...
 //!   use-cases/      UC-001.md, ...
 //!   requirements/   R-001.md, ...
+//!   components/     C-001.md, ...
+//!   flows/          FL-001.md, ...
 //! ```
 //!
 //! Rust deliberately does no YAML parsing: it moves raw file text in and out and
@@ -16,14 +19,22 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Duration;
 
+use notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, State};
 
-/// The three artifact kinds in this slice, and their on-disk folder names.
+/// The artifact kinds in this slice, and their on-disk folder names.
 const KIND_DIRS: &[(&str, &str)] = &[
+    ("stakeholder", "stakeholders"),
     ("need", "needs"),
     ("use-case", "use-cases"),
     ("requirement", "requirements"),
+    ("component", "components"),
+    ("flow", "flows"),
 ];
 
 /// A single artifact file as raw text, tagged with its kind.
@@ -129,5 +140,67 @@ pub fn delete_artifact(project_dir: String, kind: String, filename: String) -> R
     if target.exists() {
         fs::remove_file(&target).map_err(|e| format!("deleting {}: {e}", target.display()))?;
     }
+    Ok(())
+}
+
+/// Event emitted to the frontend when `.md` files change on disk. The payload is
+/// the list of changed file basenames (e.g. `["N-001.md", "R-004.md"]`).
+pub const CHANGE_EVENT: &str = "project-files-changed";
+
+/// Holds the active filesystem watcher for the lifetime of the app. Kept in
+/// Tauri-managed state so it isn't dropped (which would stop watching) and so
+/// opening a different project folder can replace it.
+#[derive(Default)]
+pub struct WatcherState(pub Mutex<Option<Debouncer<RecommendedWatcher>>>);
+
+/// Start (or restart) watching a project folder for external `.md` edits — made
+/// by an editor, an LLM, git, or anything outside the app — and forward them to
+/// the frontend as [`CHANGE_EVENT`].
+///
+/// Writes the app makes itself are seen here too; the frontend tracks its own
+/// saves and only reloads on genuinely external changes. Events are debounced so
+/// a burst of edits collapses into a single notification.
+#[tauri::command]
+pub fn watch_project(
+    app: AppHandle,
+    state: State<'_, WatcherState>,
+    project_dir: String,
+) -> Result<(), String> {
+    let root = Path::new(&project_dir).to_path_buf();
+    if !root.exists() {
+        return Err(format!("project folder does not exist: {}", root.display()));
+    }
+
+    let app_handle = app.clone();
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(300),
+        move |result: DebounceEventResult| {
+            let events = match result {
+                Ok(events) => events,
+                Err(_) => return,
+            };
+            let mut files: Vec<String> = events
+                .iter()
+                .filter(|e| e.path.extension().and_then(|x| x.to_str()) == Some("md"))
+                .filter_map(|e| e.path.file_name().and_then(|f| f.to_str()).map(String::from))
+                .collect();
+            files.sort();
+            files.dedup();
+            if !files.is_empty() {
+                let _ = app_handle.emit(CHANGE_EVENT, files);
+            }
+        },
+    )
+    .map_err(|e| format!("creating watcher: {e}"))?;
+
+    // Watch the whole project folder recursively so every per-kind subfolder is
+    // covered, including ones created after the watch starts.
+    debouncer
+        .watcher()
+        .watch(&root, RecursiveMode::Recursive)
+        .map_err(|e| format!("watching {}: {e}", root.display()))?;
+
+    // Replace any previous watcher; dropping it stops the old folder's watch.
+    *state.0.lock().map_err(|e| e.to_string())? = Some(debouncer);
     Ok(())
 }

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import type { Artifact, ArtifactKind, Project } from "../types";
@@ -7,6 +8,17 @@ import type { StorageAdapter } from "./adapter";
 import { filenameFor, parseArtifact, serializeArtifact } from "./serialize";
 
 const DIR_KEY = "throughline.projectDir";
+
+/** Rust event carrying the basenames of `.md` files that changed on disk. */
+const CHANGE_EVENT = "project-files-changed";
+
+/**
+ * How long a file the app just wrote keeps ignoring watcher echoes. Must clear
+ * the watcher's 300 ms debounce plus write latency; during continuous inline
+ * editing each keystroke's save refreshes the window, so the app's own writes
+ * never trigger a reload that would clobber what the user is typing.
+ */
+const SELF_WRITE_TTL_MS = 2000;
 
 interface ArtifactFile {
   kind: string;
@@ -23,8 +35,20 @@ export class TauriStorage implements StorageAdapter {
   readonly kind = "tauri" as const;
   private dir: string | null;
 
+  /**
+   * Filenames this adapter wrote recently, each mapped to when its watcher echo
+   * should stop being ignored. Lets `watch` tell the app's own saves apart from
+   * genuinely external edits.
+   */
+  private recentWrites = new Map<string, number>();
+
   constructor() {
     this.dir = localStorage.getItem(DIR_KEY);
+  }
+
+  /** Remember a filename we just wrote, so its watcher echo is ignored. */
+  private markSelfWrite(filename: string): void {
+    this.recentWrites.set(filename, Date.now() + SELF_WRITE_TTL_MS);
   }
 
   isReady(): boolean {
@@ -45,6 +69,9 @@ export class TauriStorage implements StorageAdapter {
       const kind = f.kind as ArtifactKind;
       const artifact = parseArtifact(kind, f.filename, f.content);
       switch (artifact.kind) {
+        case "stakeholder":
+          project.stakeholders.push(artifact);
+          break;
         case "need":
           project.needs.push(artifact);
           break;
@@ -54,6 +81,12 @@ export class TauriStorage implements StorageAdapter {
         case "requirement":
           project.requirements.push(artifact);
           break;
+        case "component":
+          project.components.push(artifact);
+          break;
+        case "flow":
+          project.flows.push(artifact);
+          break;
       }
     }
     sortById(project);
@@ -62,21 +95,44 @@ export class TauriStorage implements StorageAdapter {
 
   async save(artifact: Artifact): Promise<void> {
     this.requireDir();
+    const filename = filenameFor(artifact);
+    this.markSelfWrite(filename);
     await invoke("write_artifact", {
       projectDir: this.dir,
       kind: artifact.kind,
-      filename: filenameFor(artifact),
+      filename,
       content: serializeArtifact(artifact),
     });
   }
 
   async remove(artifact: Artifact): Promise<void> {
     this.requireDir();
+    const filename = filenameFor(artifact);
+    this.markSelfWrite(filename);
     await invoke("delete_artifact", {
       projectDir: this.dir,
       kind: artifact.kind,
-      filename: filenameFor(artifact),
+      filename,
     });
+  }
+
+  async watch(onExternalChange: () => void): Promise<() => void> {
+    if (!this.dir) return () => {};
+    await invoke("watch_project", { projectDir: this.dir });
+    const unlisten = await listen<string[]>(CHANGE_EVENT, (event) => {
+      const now = Date.now();
+      // Was every changed file one we just wrote? If so it's our own echo.
+      const external = (event.payload ?? []).some((name) => {
+        const until = this.recentWrites.get(name);
+        return until == null || until < now;
+      });
+      // Drop expired self-write markers so the map can't grow without bound.
+      for (const [name, until] of this.recentWrites) {
+        if (until < now) this.recentWrites.delete(name);
+      }
+      if (external) onExternalChange();
+    });
+    return unlisten;
   }
 
   async chooseProject(): Promise<boolean> {
@@ -99,7 +155,10 @@ export class TauriStorage implements StorageAdapter {
 
 function sortById(project: Project): void {
   const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
+  project.stakeholders.sort(byId);
   project.needs.sort(byId);
   project.useCases.sort(byId);
   project.requirements.sort(byId);
+  project.components.sort(byId);
+  project.flows.sort(byId);
 }

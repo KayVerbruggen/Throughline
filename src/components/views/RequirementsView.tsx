@@ -1,3 +1,4 @@
+import { composeEars } from "../../model/ears";
 import { matchText } from "../../model/search";
 import { requirementWarning } from "../../model/trace";
 import { useStore } from "../../state/store";
@@ -12,7 +13,7 @@ export function RequirementsView() {
   const select = useStore((s) => s.select);
 
   const rows = project.requirements.filter((r) =>
-    matchText(search, r.id, r.title, r.body, r.trace),
+    matchText(search, r.id, r.title, composeEars(r), r.trace),
   );
 
   return (

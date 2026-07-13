@@ -25,5 +25,6 @@ export function buildFile(data: Record<string, unknown>, body: string): string {
     .dump(data, { lineWidth: 100, noRefs: true, quotingType: '"' })
     .trimEnd();
   const trimmedBody = body.trim();
+  if (!trimmedBody) return `---\n${fm}\n---\n`;
   return `---\n${fm}\n---\n\n${trimmedBody}\n`;
 }

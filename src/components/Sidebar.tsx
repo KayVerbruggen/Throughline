@@ -11,11 +11,12 @@ interface NavDef {
 }
 
 const NAV: NavDef[] = [
+  { id: "stakeholders", label: "Stakeholders", icon: "stakeholder" },
   { id: "needs", label: "Needs", icon: "need" },
   { id: "use-cases", label: "Use Cases", icon: "use-case" },
   { id: "requirements", label: "Requirements", icon: "requirement" },
-  { id: "structure", label: "System Structure", icon: "structure", soon: true },
-  { id: "behavior", label: "System Behavior", icon: "behavior", soon: true },
+  { id: "structure", label: "System Structure", icon: "structure" },
+  { id: "behavior", label: "System Behavior", icon: "behavior" },
   { id: "traceability", label: "Traceability", icon: "trace" },
 ];
 

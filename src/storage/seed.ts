@@ -7,6 +7,40 @@ import type { Project } from "../types";
  */
 export function seedProject(): Project {
   return {
+    stakeholders: [
+      {
+        kind: "stakeholder",
+        id: "SH-001",
+        title: "Fleet Operator",
+        type: "primary",
+        created: "2026-06-01",
+        body: "Runs a fleet of electric vehicles that depend on the station being available and reliable overnight. Cares most about sessions completing unattended.",
+      },
+      {
+        kind: "stakeholder",
+        id: "SH-002",
+        title: "Site Operator",
+        type: "primary",
+        created: "2026-06-01",
+        body: "Owns and maintains the physical charging site. Needs to monitor station health and be alerted to faults before drivers are affected.",
+      },
+      {
+        kind: "stakeholder",
+        id: "SH-003",
+        title: "Product Manager",
+        type: "primary",
+        created: "2026-06-01",
+        body: "Owns the product roadmap and competitive positioning. Balances hardware compatibility and cost-optimisation features against delivery timelines.",
+      },
+      {
+        kind: "stakeholder",
+        id: "SH-004",
+        title: "Compliance Officer",
+        type: "secondary",
+        created: "2026-06-01",
+        body: "Ensures the station meets regulatory and procurement requirements such as the OCPP protocol. Not a day-to-day user but gates release.",
+      },
+    ],
     needs: [
       {
         kind: "need",
@@ -14,6 +48,7 @@ export function seedProject(): Project {
         title: "Unattended charge completion",
         status: "approved",
         moscow: "must",
+        stakeholder: "SH-001",
         source: "Customer interview · Acme Fleet Ops",
         tags: ["reliability", "driver-ux"],
         created: "2026-06-02",
@@ -25,6 +60,7 @@ export function seedProject(): Project {
         title: "Multi-standard connector support",
         status: "approved",
         moscow: "should",
+        stakeholder: "SH-003",
         source: "Competitive analysis · Q1 2026",
         tags: ["compatibility", "hardware"],
         created: "2026-06-02",
@@ -36,6 +72,7 @@ export function seedProject(): Project {
         title: "Remote fleet monitoring",
         status: "draft",
         moscow: "should",
+        stakeholder: "SH-002",
         source: "Operations workshop · Mar 2026",
         tags: ["operations", "telemetry"],
         created: "2026-06-05",
@@ -47,6 +84,7 @@ export function seedProject(): Project {
         title: "Off-peak cost optimization",
         status: "draft",
         moscow: "could",
+        stakeholder: "SH-003",
         source: "Product strategy memo",
         tags: ["cost", "grid"],
         created: "2026-06-10",
@@ -58,6 +96,7 @@ export function seedProject(): Project {
         title: "OCPP 2.0.1 compliance",
         status: "approved",
         moscow: "must",
+        stakeholder: "SH-004",
         source: "Regulatory requirement",
         tags: ["compliance", "protocol"],
         created: "2026-06-02",
@@ -77,18 +116,7 @@ export function seedProject(): Project {
           "Station is in the Available state",
           "Connector is physically seated in the vehicle inlet",
         ],
-        mainFlow: [
-          "Driver plugs the connector into the vehicle.",
-          "EVSE detects the connection and reads the vehicle's charging capabilities.",
-          "Driver authorizes the session (RFID, app, or plug-and-charge).",
-          "EVSE negotiates a charging profile with the vehicle BMS.",
-          "EVSE begins energy delivery and shows live session status.",
-          "Session continues until the target SoC is reached or the driver stops it.",
-        ],
-        altFlows: [
-          { step: 3, text: "if authorization is declined, the EVSE returns to Available and shows an error to the driver." },
-          { step: 5, text: "if the vehicle reports a fault during negotiation, the EVSE aborts the session and logs a diagnostic code." },
-        ],
+        flow: "FL-001",
         stories: [
           {
             id: "US-001",
@@ -114,16 +142,7 @@ export function seedProject(): Project {
         trace: ["N-001", "N-005"],
         actors: ["Driver", "EVSE Controller", "CPMS"],
         preconditions: ["Station has network connectivity to the CPMS"],
-        mainFlow: [
-          "Driver presents an RFID card to the reader.",
-          "EVSE reads the card UID.",
-          "EVSE requests authorization from the CPMS.",
-          "CPMS validates the token and returns a decision.",
-          "EVSE unlocks the session on approval.",
-        ],
-        altFlows: [
-          { step: 3, text: "if the CPMS is unreachable, the EVSE falls back to a locally cached allow-list if one is configured." },
-        ],
+        flow: "FL-002",
         stories: [
           {
             id: "US-003",
@@ -143,15 +162,7 @@ export function seedProject(): Project {
         trace: ["N-003"],
         actors: ["Site Operator", "CPMS", "EVSE Controller"],
         preconditions: ["Station is commissioned and online"],
-        mainFlow: [
-          "EVSE publishes status and meter values on a fixed interval.",
-          "CPMS aggregates telemetry across the site.",
-          "Operator views station state on the dashboard.",
-          "Operator drills into an individual session for detail.",
-        ],
-        altFlows: [
-          { step: 1, text: "if the station loses connectivity, the CPMS marks it Unknown after a heartbeat timeout." },
-        ],
+        flow: "FL-003",
         stories: [
           {
             id: "US-004",
@@ -171,15 +182,7 @@ export function seedProject(): Project {
         trace: ["N-004"],
         actors: ["Driver", "EVSE Controller", "Tariff Service"],
         preconditions: ["Driver has opted into smart scheduling", "A departure time is known"],
-        mainFlow: [
-          "Driver sets a departure time and minimum SoC.",
-          "EVSE fetches the tariff forecast.",
-          "EVSE computes the lowest-cost charging window.",
-          "EVSE defers delivery until the optimal window, guaranteeing SoC by departure.",
-        ],
-        altFlows: [
-          { step: 2, text: "if no tariff data is available, the EVSE charges immediately at the standard profile." },
-        ],
+        flow: "FL-004",
         stories: [
           {
             id: "US-005",
@@ -201,8 +204,12 @@ export function seedProject(): Project {
         trace: ["UC-001"],
         format: "EARS",
         ears: "event-driven",
+        condition: "a vehicle is connected and the session is authorized",
+        subject: "EVSE",
+        action: "begin energy delivery",
+        object: "",
+        constraint: "within 5 seconds",
         created: "2026-06-25",
-        body: "WHEN a vehicle is connected and the session is authorized, the EVSE shall begin energy delivery within 5 seconds.",
       },
       {
         kind: "requirement",
@@ -213,8 +220,12 @@ export function seedProject(): Project {
         trace: ["UC-001"],
         format: "EARS",
         ears: "state-driven",
+        condition: "a charging session is active",
+        subject: "EVSE",
+        action: "sample output current",
+        object: "",
+        constraint: "at a rate of at least 10 Hz",
         created: "2026-06-25",
-        body: "WHILE a charging session is active, the EVSE shall sample output current at a rate of at least 10 Hz.",
       },
       {
         kind: "requirement",
@@ -225,8 +236,12 @@ export function seedProject(): Project {
         trace: ["UC-001"],
         format: "EARS",
         ears: "unwanted-behavior",
+        condition: "the measured output current exceeds the connector's rated limit",
+        subject: "EVSE",
+        action: "interrupt energy delivery",
+        object: "",
+        constraint: "within 100 ms",
         created: "2026-06-25",
-        body: "IF the measured output current exceeds the connector's rated limit, THEN the EVSE shall interrupt energy delivery within 100 ms.",
       },
       {
         kind: "requirement",
@@ -237,8 +252,12 @@ export function seedProject(): Project {
         trace: ["UC-002"],
         format: "EARS",
         ears: "ubiquitous",
+        condition: "",
+        subject: "EVSE",
+        action: "record every authentication attempt",
+        object: "with its card UID, timestamp, and outcome",
+        constraint: "",
         created: "2026-06-26",
-        body: "The EVSE shall record every authentication attempt with its card UID, timestamp, and outcome.",
       },
       {
         kind: "requirement",
@@ -249,8 +268,12 @@ export function seedProject(): Project {
         trace: ["UC-004"],
         format: "EARS",
         ears: "optional",
+        condition: "tariff forecast data is available",
+        subject: "EVSE",
+        action: "schedule charging",
+        object: "",
+        constraint: "to complete within the lowest-cost window before the driver's departure time",
         created: "2026-06-28",
-        body: "WHERE tariff forecast data is available, the EVSE shall schedule charging to complete within the lowest-cost window before the driver's departure time.",
       },
       {
         kind: "requirement",
@@ -261,8 +284,12 @@ export function seedProject(): Project {
         trace: ["UC-003"],
         format: "EARS",
         ears: "complex",
+        condition: "a heartbeat is not received for 3 consecutive intervals while the station is commissioned",
+        subject: "EVSE",
+        action: "transition the station to the Unknown state and emit a StatusNotification",
+        object: "",
+        constraint: "",
         created: "2026-06-28",
-        body: "WHEN a heartbeat is not received for 3 consecutive intervals WHILE the station is commissioned, the EVSE shall transition the station to the Unknown state and emit a StatusNotification.",
       },
       {
         kind: "requirement",
@@ -273,8 +300,88 @@ export function seedProject(): Project {
         trace: [],
         format: "EARS",
         ears: "event-driven",
+        condition: "the emergency-stop button is pressed",
+        subject: "EVSE",
+        action: "de-energize all connectors",
+        object: "",
+        constraint: "within 50 ms",
         created: "2026-06-30",
-        body: "WHEN the emergency-stop button is pressed, the EVSE shall de-energize all connectors within 50 ms.",
+      },
+    ],
+    components: [
+      {
+        kind: "component",
+        id: "C-001",
+        title: "Driver Interface",
+        description:
+          "The card reader, display and buttons the driver interacts with at the station.",
+        created: "2026-07-01",
+        activities: [
+          { id: "ACT-001", label: "Tap access card" },
+          { id: "ACT-002", label: "Show time-to-full estimate" },
+        ],
+      },
+      {
+        kind: "component",
+        id: "C-002",
+        title: "EVSE Controller",
+        description:
+          "The station's firmware controller: orchestrates authorization, energy delivery and safety monitoring.",
+        created: "2026-07-01",
+        activities: [
+          { id: "ACT-003", label: "Request authorization" },
+          { id: "ACT-004", label: "Begin energy delivery" },
+          { id: "ACT-005", label: "Sample output current" },
+          { id: "ACT-006", label: "Reject the session" },
+        ],
+      },
+      {
+        kind: "component",
+        id: "C-003",
+        title: "Charge Point Management System",
+        description:
+          "The back-office CPMS that authenticates cards and keeps the audit trail.",
+        created: "2026-07-01",
+        activities: [
+          { id: "ACT-007", label: "Validate the card" },
+          { id: "ACT-008", label: "Record an audit entry" },
+        ],
+      },
+      {
+        kind: "component",
+        id: "C-004",
+        title: "Vehicle BMS",
+        description: "The vehicle's battery management system, negotiated with over the connector.",
+        created: "2026-07-01",
+        activities: [{ id: "ACT-009", label: "Report target state of charge" }],
+      },
+    ],
+    flows: [
+      {
+        kind: "flow",
+        id: "FL-001",
+        title: "Start a charging session",
+        created: "2026-07-02",
+        // Driver → EVSE → CPMS → EVSE → BMS → EVSE
+        main: ["ACT-001", "ACT-003", "ACT-007", "ACT-004", "ACT-009", "ACT-005"],
+        alternates: [
+          {
+            id: "AP-1",
+            condition: "the card is not recognised",
+            after: 2, // after "Validate the card"
+            rejoin: -1, // terminates the flow
+            steps: ["ACT-006"], // EVSE rejects the session
+          },
+        ],
+      },
+      {
+        kind: "flow",
+        id: "FL-002",
+        title: "Authenticate via RFID card",
+        created: "2026-07-02",
+        // Driver → EVSE → CPMS → CPMS
+        main: ["ACT-001", "ACT-003", "ACT-007", "ACT-008"],
+        alternates: [],
       },
     ],
   };

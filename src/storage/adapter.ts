@@ -30,4 +30,15 @@ export interface StorageAdapter {
    * is ready afterwards.
    */
   chooseProject(): Promise<boolean>;
+
+  /**
+   * Watch the project's files for changes made outside the app — a manual edit
+   * in an editor, an LLM rewriting a file, a git checkout — and call
+   * `onExternalChange` when they happen, so the caller can reload. Changes the
+   * app writes itself are filtered out and don't fire the callback. Resolves to
+   * a function that stops watching.
+   *
+   * Optional: backends without a real filesystem (the browser fallback) omit it.
+   */
+  watch?(onExternalChange: () => void): Promise<() => void>;
 }

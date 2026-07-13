@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 
-import type { EarsPattern, Moscow, Status } from "../types";
+import type { EarsPattern, Moscow, StakeholderType, Status } from "../types";
 import { Icon } from "./icons";
 
 // --- label + color maps -----------------------------------------------------
@@ -9,6 +9,11 @@ const STATUS: Record<Status, { bg: string; color: string; label: string }> = {
   draft: { bg: "rgba(var(--line),.06)", color: "#6b6c70", label: "Draft" },
   approved: { bg: "oklch(0.94 0.045 150)", color: "oklch(0.42 0.09 150)", label: "Approved" },
   deprecated: { bg: "oklch(0.94 0.04 40)", color: "oklch(0.48 0.11 40)", label: "Deprecated" },
+};
+
+const STAKEHOLDER_TYPE: Record<StakeholderType, { bg: string; color: string; label: string }> = {
+  primary: { bg: "oklch(0.95 0.03 258)", color: "oklch(0.48 0.12 258)", label: "Primary" },
+  secondary: { bg: "rgba(var(--line),.06)", color: "var(--sub)", label: "Secondary" },
 };
 
 const MOSCOW: Record<Moscow, { color: string; label: string }> = {
@@ -46,6 +51,27 @@ export function StatusBadge({ status }: { status: Status }) {
       }}
     >
       {s.label}
+    </span>
+  );
+}
+
+export function StakeholderTypeBadge({ type }: { type: StakeholderType }) {
+  const t = STAKEHOLDER_TYPE[type];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        font: "500 10.5px 'IBM Plex Mono'",
+        letterSpacing: ".02em",
+        color: t.color,
+        background: t.bg,
+        padding: "3px 8px",
+        borderRadius: 6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {t.label}
     </span>
   );
 }

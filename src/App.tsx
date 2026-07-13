@@ -3,9 +3,11 @@ import { useEffect } from "react";
 import { DetailPanel } from "./components/detail/DetailPanel";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
-import { ComingSoon } from "./components/views/ComingSoon";
+import { BehaviorView } from "./components/views/BehaviorView";
 import { NeedsView } from "./components/views/NeedsView";
 import { RequirementsView } from "./components/views/RequirementsView";
+import { StakeholdersView } from "./components/views/StakeholdersView";
+import { StructureView } from "./components/views/StructureView";
 import { TraceabilityView } from "./components/views/TraceabilityView";
 import { UseCasesView } from "./components/views/UseCasesView";
 import { useStore } from "./state/store";
@@ -13,6 +15,7 @@ import { useStore } from "./state/store";
 export default function App() {
   const init = useStore((s) => s.init);
   const theme = useStore((s) => s.theme);
+  const syncSystemTheme = useStore((s) => s.syncSystemTheme);
   const ready = useStore((s) => s.ready);
   const loading = useStore((s) => s.loading);
   const view = useStore((s) => s.view);
@@ -24,6 +27,14 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  // Follow OS light/dark changes until the user picks a theme explicitly.
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => syncSystemTheme();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [syncSystemTheme]);
 
   return (
     <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden" }}>
@@ -56,6 +67,8 @@ export default function App() {
 
 function Content({ view }: { view: ReturnType<typeof useStore.getState>["view"] }) {
   switch (view) {
+    case "stakeholders":
+      return <StakeholdersView />;
     case "needs":
       return <NeedsView />;
     case "use-cases":
@@ -65,8 +78,9 @@ function Content({ view }: { view: ReturnType<typeof useStore.getState>["view"] 
     case "traceability":
       return <TraceabilityView />;
     case "structure":
+      return <StructureView />;
     case "behavior":
-      return <ComingSoon view={view} />;
+      return <BehaviorView />;
   }
 }
 

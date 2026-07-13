@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 export type IconName =
+  | "stakeholder"
   | "need"
   | "use-case"
   | "requirement"
@@ -47,6 +48,13 @@ export function Icon({ name, size = 17, color = "currentColor", style, title }: 
 
 function shape(name: IconName, color: string, stroke: Record<string, unknown>) {
   switch (name) {
+    case "stakeholder":
+      return (
+        <>
+          <circle cx={9} cy={6} r={2.7} {...stroke} />
+          <path d="M3.8 15a5.2 5.2 0 0 1 10.4 0" {...stroke} />
+        </>
+      );
     case "need":
       return <circle cx={9} cy={9} r={5.4} {...stroke} />;
     case "structure":
