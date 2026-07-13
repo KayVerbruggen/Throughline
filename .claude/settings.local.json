@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(cargo tauri *)",
+      "Bash(git --version)",
+      "PowerShell(Write-Output \"=== node ===\"; \\(Get-Command node -ErrorAction SilentlyContinue\\).Source; node --version 2>$null; Write-Output \"=== npm ===\"; npm --version 2>$null; Write-Output \"=== cargo ===\"; \\(Get-Command cargo -ErrorAction SilentlyContinue\\).Source; cargo --version 2>$null; Write-Output \"=== rustc ===\"; rustc --version 2>$null; Write-Output \"=== pnpm ===\"; pnpm --version 2>$null)",
+      "PowerShell(Write-Output \"=== winget ===\"; \\(Get-Command winget -ErrorAction SilentlyContinue\\).Source; Write-Output \"=== common node paths ===\"; @\\(\"$env:ProgramFiles\\\\nodejs\\\\node.exe\",\"$env:LOCALAPPDATA\\\\Programs\\\\nodejs\\\\node.exe\",\"$env:APPDATA\\\\npm\",\"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\",\"$env:USERPROFILE\\\\scoop\\\\shims\\\\node.exe\"\\) | ForEach-Object { if \\(Test-Path $_\\) { Write-Output \"FOUND: $_\" } }; Write-Output \"=== fnm/nvm ===\"; \\(Get-Command fnm -ErrorAction SilentlyContinue\\).Source; \\(Get-Command nvm -ErrorAction SilentlyContinue\\).Source)",
+      "Bash(grep -oE '.{120}must[^;]{0,200}lower.{0,200}' C:/Users/kayve/.claude/projects/C--Users-kayve-Documents-Throughline/68fd1868-4078-469f-a080-a90f357ec4b6/tool-results/toolu_01WBv5mr2aGk4U9NfNNia8VP.txt)",
+      "Bash(grep -oE 'needWarn\\\\\\(n\\\\\\) \\\\{.{0,320}' C:/Users/kayve/.claude/projects/C--Users-kayve-Documents-Throughline/68fd1868-4078-469f-a080-a90f357ec4b6/tool-results/toolu_01WBv5mr2aGk4U9NfNNia8VP.txt)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(cargo --version)",
+      "PowerShell(rustc --version)",
+      "PowerShell(npm install)",
+      "PowerShell($sp = \"C:\\\\Users\\\\kayve\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-kayve-Documents-Throughline\\\\68fd1868-4078-469f-a080-a90f357ec4b6\\\\scratchpad\"; node \"$sp\\\\gen-icon.mjs\" \"$sp\\\\app-icon.png\"; Get-Item \"$sp\\\\app-icon.png\" | Select-Object Name,Length)",
+      "PowerShell($sp = \"C:\\\\Users\\\\kayve\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-kayve-Documents-Throughline\\\\68fd1868-4078-469f-a080-a90f357ec4b6\\\\scratchpad\"; npm run tauri icon -- \"$sp\\\\app-icon.png\")",
+      "PowerShell(npm run typecheck)",
+      "PowerShell(npm run build)",
+      "PowerShell(cargo check --manifest-path src-tauri/Cargo.toml)",
+      "PowerShell(git init -q; git add -A; Write-Output \"staged files:\"; \\(git diff --cached --name-only | Measure-Object -Line\\).Lines)"
+    ]
+  }
+}

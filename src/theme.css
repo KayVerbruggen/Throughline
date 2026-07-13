@@ -1,0 +1,127 @@
+:root {
+  --bg: #fbfbfa;
+  --panel: #f5f5f4;
+  --surface: #ffffff;
+  --surface2: #fafafa;
+  --ink: #1b1b1d;
+  --sub: #5b5c60;
+  --ter: #a6a7ab;
+  --faint: #c2c3c7;
+  --line: 23, 23, 25;
+  --ink-hover: #000000;
+  --code-bg: #1b1b1d;
+
+  --accent: oklch(0.52 0.13 258);
+  --accent-ink: oklch(0.48 0.12 258);
+  --accent-bg: oklch(0.965 0.018 258);
+  --accent-bg-hover: oklch(0.93 0.035 258);
+  --warn: oklch(0.55 0.14 60);
+  --warn-ink: oklch(0.42 0.1 55);
+  --warn-bg: oklch(0.96 0.03 75);
+  --warn-border: oklch(0.88 0.06 70);
+}
+
+:root[data-theme="dark"] {
+  --bg: #161719;
+  --panel: #1d1e21;
+  --surface: #232428;
+  --surface2: #1b1c1f;
+  --ink: #edeef1;
+  --sub: #a5a6ac;
+  --ter: #77787e;
+  --faint: #55565c;
+  --line: 236, 238, 244;
+  --ink-hover: #ffffff;
+  --code-bg: #111216;
+
+  --accent: oklch(0.7 0.11 258);
+  --accent-ink: oklch(0.78 0.1 258);
+  --accent-bg: oklch(0.3 0.04 258);
+  --accent-bg-hover: oklch(0.36 0.05 258);
+  --warn-ink: oklch(0.82 0.1 75);
+  --warn-bg: oklch(0.32 0.05 70);
+  --warn-border: oklch(0.45 0.07 70);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+textarea,
+input,
+select {
+  color: var(--ink);
+}
+
+::selection {
+  background: oklch(0.9 0.05 258);
+}
+
+*::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(var(--line), 0.16);
+  border-radius: 7px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--line), 0.28);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+
+@keyframes tl-slide {
+  from {
+    transform: translateX(22px);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes tl-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
