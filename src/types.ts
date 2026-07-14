@@ -186,6 +186,15 @@ export interface Activity {
    * make a flow a transition function over the state valuation. (Stage 1.)
    */
   effects?: string[];
+  /**
+   * Optional initiator of this activity, for the derived sequence diagram: the
+   * id of the participant that *sends* the message triggering it — a Stakeholder
+   * (an actor, e.g. the system engineer) or a Component. When absent the sender
+   * defaults to the previous activity's owning component (a natural hand-off),
+   * or the use case's primary actor for the first activity. The activity's own
+   * owning component is always the *receiver*.
+   */
+  initiator?: string;
 }
 
 /**

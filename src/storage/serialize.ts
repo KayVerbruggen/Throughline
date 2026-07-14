@@ -111,11 +111,13 @@ function parseActivities(v: unknown): Activity[] {
       const o = (raw ?? {}) as Record<string, unknown>;
       const pre = o.pre != null && str(o.pre).trim() ? str(o.pre) : undefined;
       const effects = strArray(o.effects);
+      const initiator = o.initiator != null && str(o.initiator).trim() ? str(o.initiator) : undefined;
       return {
         id: str(o.id, `ACT-${String(i + 1).padStart(3, "0")}`),
         label: str(o.label),
         ...(pre ? { pre } : {}),
         ...(effects.length ? { effects } : {}),
+        ...(initiator ? { initiator } : {}),
       } satisfies Activity;
     })
     .filter((a) => a.id.length > 0);
@@ -403,6 +405,7 @@ export function serializeArtifact(a: Artifact): string {
           const out: Record<string, unknown> = { id: act.id, label: act.label };
           if (act.pre) out.pre = act.pre;
           if (act.effects?.length) out.effects = act.effects;
+          if (act.initiator) out.initiator = act.initiator;
           return out;
         });
       }
