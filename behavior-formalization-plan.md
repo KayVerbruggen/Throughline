@@ -14,6 +14,24 @@ core is pure (no I/O, fully unit-testable). Direction was set by four decisions:
 | How fast to formalize | **Stage it** — typed guards first, activity effects later |
 | What defines a "state" for charts | **Derive from flow control-points** first; explicit modes later |
 | Primary "executable" payoff | **In-app simulator + consistency checks** (export/verification deferred) |
+| Effects vs. transitions (2026-07-14) | **Decoupled, permanently** — an `Activity` is already a named transition (component + label, shared across every flow that uses it) the moment it's placed on a flow. `effects` are an optional refinement on top, never a prerequisite for the chart. |
+
+### Why the decoupling (2026-07-14 revision)
+
+Writing `upstreamGate.state := open` is a bigger conceptual jump than writing
+`chamber.vesselCount != 0` — guards read like the natural-language condition
+they formalize, assignments require first internalizing "state lives in
+component variables." The fix isn't a new schema concept: `Activity` (an id,
+a label, one owning component, reused across flows — see `types.ts`) is
+already exactly the "operation on a component, standing for a transition"
+the naming-only step needs. Nothing new has to be added to name a transition;
+you get one for free every time you place an activity on a flow. What changes
+is the *plan's* framing of `effects`: they stop being a Stage-1 completion
+target ("every activity has effects") and become an always-optional layer
+that some activities carry and others never do. Stage 3's control-point chart
+is updated to confirm this in practice — it only ever needed Stage 0 guards,
+never Stage 1 effects, so the "get to a chart" path was already effect-free;
+this revision just stops implying otherwise.
 
 ## Motivating example (pound-lock)
 
@@ -158,8 +176,16 @@ named variable, so effects read `upstreamGate.state := open` rather than a bare
 `upstreamGate := open`. `evaluate`/actually stepping a flow is Stage 2; Stage 1
 stops at authoring + type-checking the transition function.
 
-**Exit criteria:** every FL-001 activity has effects; a flow defines a transition
-function over the state valuation.
+**Exit criteria (revised 2026-07-14):** *not* "every FL-001 activity has
+effects" — that framed effects as a completion target, which is exactly the
+friction this revision removes. The real exit criterion: an activity **can**
+carry effects, they validate live when present, and the model works
+correctly with zero, partial, or full effect coverage. FL-001's gate/sluice
+activities carry effects because they matter for the pound-lock invariant;
+other activities on other flows are free to stay label-only transitions
+indefinitely. Every activity is already a transition (component + label,
+shared across flows) the moment it's on a flow — effects only sharpen what a
+transition *does*, they don't constitute it.
 
 ---
 
@@ -169,8 +195,14 @@ function over the state valuation.
 
 - `model/simulate.ts` (pure): initial valuation from component `Variable.initial`
   (optionally overlaid by the use case's preconditions once those are formalized).
-  Walk `main`, applying `effects`; at each alternate's `after` step, evaluate its
+  Walk `main`, applying `effects` where present — an activity with **no**
+  `effects` is simply the identity transition (valuation unchanged), not an
+  error or a gap to fill in; at each alternate's `after` step, evaluate its
   `guard` to decide whether the branch is taken; follow `rejoin`.
+  Coverage is naturally partial: invariant checks are only as strong as the
+  effects actually authored, and that's fine — a flow with a handful of
+  load-bearing effects (the gates, in FL-001) and many effect-free steps still
+  simulates and still catches the invariants those few effects encode.
 - Checks surfaced in the existing consistency-warning UI:
   - **Unreachable branch** — guard can never be true given reachable states.
   - **Vacuous / contradictory guard** — always true / always false, or two sibling
@@ -193,9 +225,15 @@ located warning in the UI.
 
 - **First cut — derive from flow control-points:** each activity/step is a node;
   edges follow `main` order and alternate `after`/`rejoin`; edge labels are the
-  guards from Stage 0. This is auto-derivable from what exists *today* plus guards,
-  with near-zero new authoring. Render in a new "State chart" view (reuse
-  `model/layout.ts`).
+  guards from Stage 0 where present, else just the activity's label. This is
+  auto-derivable from what exists *today* plus guards — **it needs zero Stage 1
+  effects.** An activity with no `effects` still renders as a normal edge (the
+  chart shows *that* a transition happens and *when* it's guarded, not
+  necessarily *what state it changes*); effects only make a node's downstream
+  guards evaluable in Stage 2's simulator, they aren't required to draw the
+  chart. This is the concrete answer to "can I get an executable-looking model
+  without writing assignments first": yes, via guards alone. Render in a new
+  "State chart" view (reuse `model/layout.ts`).
 - **Later — explicit modes:** let a component declare a distinguished `enum`
   variable as its *mode* (e.g. lock: `Idle → Filling → UpperLevel → Emptying →
   LowerLevel`); collapse the control-point graph onto mode transitions to get a
@@ -215,3 +253,7 @@ located warning in the UI.
 - Biggest open modeling question for later: how preconditions on use cases relate
   to the initial simulation valuation (formalize `UC.preconditions` as guards vs.
   keep them prose and seed the initial state only from `Variable.initial`).
+- Resolved (2026-07-14): whether naming a transition requires specifying its
+  effect. It doesn't, permanently — see the decoupling note after the decision
+  table. No schema change follows from this; it changes Stage 1's exit
+  criterion and Stage 2/3's handling of effect-free activities, not `types.ts`.
