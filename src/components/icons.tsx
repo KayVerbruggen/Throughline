@@ -7,6 +7,7 @@ export type IconName =
   | "requirement"
   | "structure"
   | "behavior"
+  | "statechart"
   | "trace"
   | "search"
   | "plus"
@@ -83,6 +84,15 @@ function shape(name: IconName, color: string, stroke: Record<string, unknown>) {
           <circle cx={4.5} cy={4.5} r={2.1} {...stroke} />
           <circle cx={13.5} cy={13.5} r={2.1} {...stroke} />
           <path d="M6.6 4.5H10a2.4 2.4 0 0 1 2.4 2.4V11" {...stroke} />
+        </>
+      );
+    case "statechart":
+      // Two state bubbles joined by a transition arrow — a derived machine.
+      return (
+        <>
+          <rect x={2.4} y={3} width={7} height={5} rx={2.5} {...stroke} />
+          <rect x={8.6} y={10} width={7} height={5} rx={2.5} {...stroke} />
+          <path d="M6 8v1.2a2 2 0 0 0 2 2h1.1" {...stroke} />
         </>
       );
     case "trace":

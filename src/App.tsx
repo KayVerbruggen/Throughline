@@ -9,6 +9,7 @@ import { GlossaryView } from "./components/views/GlossaryView";
 import { NeedsView } from "./components/views/NeedsView";
 import { RequirementsView } from "./components/views/RequirementsView";
 import { StakeholdersView } from "./components/views/StakeholdersView";
+import { StateChartView } from "./components/views/StateChartView";
 import { StructureView } from "./components/views/StructureView";
 import { TestsView } from "./components/views/TestsView";
 import { TraceabilityView } from "./components/views/TraceabilityView";
@@ -84,6 +85,8 @@ function Content({ view }: { view: ReturnType<typeof useStore.getState>["view"] 
       return <StructureView />;
     case "behavior":
       return <BehaviorView />;
+    case "state-chart":
+      return <StateChartView />;
     case "decisions":
       return <DecisionsView />;
     case "glossary":
