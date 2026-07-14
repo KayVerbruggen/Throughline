@@ -15,6 +15,13 @@ import type { Project } from "../../types";
 export type { Assignment, Expr, BinOp } from "./ast";
 export { ExprError } from "./tokenize";
 export {
+  evaluate,
+  applyAssignment,
+  valuationKey,
+  type Value,
+  type Valuation,
+} from "./evaluate";
+export {
   componentHandle,
   rewriteHandleRef,
   renameComponentHandle,
