@@ -223,6 +223,21 @@ located warning in the UI.
 
 **Goal:** derive and show a state machine; the roadmap's headline deliverable.
 
+**Status (2026-07-14): first cut shipped.** A pure `model/statechart.ts`
+(`deriveStateChart`) turns a flow into a directed `Start → activities → End`
+graph: the happy path is a central spine, each in-range alternate is a branch
+whose entry edge carries its Stage-0 `guard` (falling back to the prose
+`condition`, marked non-formal) and whose last step `rejoin`s the main flow (or
+runs to `End`); rejoins to an earlier step are detected as back edges. Layout is
+deterministic — rank by step order, greedy lane-packing so vertically disjoint
+alternates share a column. A new **State Chart** sidebar view renders it (edges
+in SVG with arrow markers, activity nodes as component-coloured cards over the
+top), sharing the Behaviour view's selected-use-case pref and letting a node
+click open its owning component. It reads **only guards, never effects** — the
+concrete proof of the decoupling: FL-001 (and the EVSE seed) chart fully with
+zero activity effects authored. Unit-tested (`statechart.test.ts`) and verified
+in-app. Explicit-mode collapsing and export stay deferred as below.
+
 - **First cut — derive from flow control-points:** each activity/step is a node;
   edges follow `main` order and alternate `after`/`rejoin`; edge labels are the
   guards from Stage 0 where present, else just the activity's label. This is
