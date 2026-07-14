@@ -1,32 +1,32 @@
 // ---------------------------------------------------------------------------
-// State-chart derivation (Stage 3, first cut).
+// Activity-diagram derivation.
 //
-// A flow's control-points ARE a state machine already: the ordered `main`
-// steps plus each alternate's branch (`after` / `guard` / `steps` / `rejoin`)
-// describe exactly when control moves from one activity to the next. This
-// module turns a Flow into a directed graph — Start → activities → End, with
-// branch edges carrying the Stage-0 guards — and lays it out for rendering.
+// A flow's control-points form an *activity diagram* (UML sense): nodes are
+// activities, edges are control flow, and each alternate is a decision branch.
+// This module turns a Flow into that directed graph — Start → activities → End,
+// with branch edges carrying the Stage-0 guards — and lays it out for rendering
+// as an alternate view of the Behaviour page.
 //
-// The point of this being the FIRST executable-looking payoff is that it needs
-// *only* guards: no activity effects are read here at all. An activity with no
-// effects is a perfectly good node; the chart shows *that* control flows and
-// *when* a branch is guarded, which is the whole answer to "can I get a chart
-// without writing state assignments first" — yes. (Stage 2's simulator is the
-// thing that later reads effects to evaluate those guards over real state.)
+// This is NOT a state chart. A state chart is per *component*: the states one
+// component's mode variable can be in and the transitions between them. That is
+// a different projection (over a component's `variables`/`effects`, aggregated
+// across every flow it appears in) and is tracked separately in the plan. What
+// this file draws is the per-flow activity graph, which needs *only* guards and
+// no effects at all — that's the whole point of it being the low-friction view.
 //
-// Everything here is pure and deterministic: same project + flow ⇒ same chart.
+// Everything here is pure and deterministic: same project + flow ⇒ same graph.
 // ---------------------------------------------------------------------------
 
 import { componentOfActivity } from "./behavior";
 import type { Flow, Project } from "../types";
 
-export type ChartNodeKind = "start" | "end" | "activity";
+export type DiagramNodeKind = "start" | "end" | "activity";
 
-export interface ChartNode {
+export interface DiagramNode {
   /** Synthetic, position-based id (e.g. "start", "m2", "AP-1#0"). Position —
    *  not activity id — so the same activity appearing twice stays two nodes. */
   id: string;
-  kind: ChartNodeKind;
+  kind: DiagramNodeKind;
   /** Display label: the activity label, or "Start" / "End". */
   label: string;
   /** Owning component id, for colour/selection (activity nodes only). */
@@ -43,12 +43,12 @@ export interface ChartNode {
   h: number;
 }
 
-export type ChartEdgeKind = "seq" | "branch" | "rejoin";
+export type DiagramEdgeKind = "seq" | "branch" | "rejoin";
 
-export interface ChartEdge {
+export interface DiagramEdge {
   from: string;
   to: string;
-  kind: ChartEdgeKind;
+  kind: DiagramEdgeKind;
   /** Guard (preferred) or prose condition shown on a branch edge. */
   label?: string;
   /** True when the guard formalises the label; false when it's prose only. */
@@ -62,10 +62,10 @@ export interface ChartEdge {
   labelY: number;
 }
 
-export interface StateChart {
-  nodes: ChartNode[];
-  edges: ChartEdge[];
-  byId: Map<string, ChartNode>;
+export interface ActivityDiagram {
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  byId: Map<string, DiagramNode>;
   width: number;
   height: number;
   /** True when there's nothing to draw (no main steps and no branches). */
@@ -82,9 +82,9 @@ const ROW = 82; // vertical distance between successive ranks
 const LANE_W = 250; // horizontal distance between lanes
 const PAD = 28;
 
-/** Arrowhead sizing — kept in sync with the <marker> drawn in StateChartView. */
-export const CHART_ARROW_LEN = 9;
-export const CHART_ARROW_GAP = 2;
+/** Arrowhead sizing — kept in sync with the <marker> drawn in the diagram view. */
+export const DIAGRAM_ARROW_LEN = 9;
+export const DIAGRAM_ARROW_GAP = 2;
 
 const mainCx = PAD + NODE_W / 2;
 
@@ -100,19 +100,19 @@ function laneX(lane: number, w: number): number {
 interface RawEdge {
   from: string;
   to: string;
-  kind: ChartEdgeKind;
+  kind: DiagramEdgeKind;
   label?: string;
   formal: boolean;
 }
 
 /**
- * Build the state chart for a single flow. Alternates whose `after` falls
+ * Build the activity diagram for a single flow. Alternates whose `after` falls
  * outside the main path are skipped (they can't be anchored to a branch point)
  * — the Behaviour view already surfaces those as "unattached", so dropping them
  * here keeps the graph well-formed rather than inventing an origin for them.
  */
-export function deriveStateChart(project: Project, flow: Flow): StateChart {
-  const nodes: ChartNode[] = [];
+export function deriveActivityDiagram(project: Project, flow: Flow): ActivityDiagram {
+  const nodes: DiagramNode[] = [];
   const rawEdges: RawEdge[] = [];
   const inMainRange = (n: number) => n >= 0 && n < flow.main.length;
 
@@ -121,7 +121,7 @@ export function deriveStateChart(project: Project, flow: Flow): StateChart {
     return { nodes: [], edges: [], byId: new Map(), width: PAD * 2, height: PAD * 2, empty: true };
   }
 
-  // Node ids. Start and End frame the machine; main steps and alternate steps
+  // Node ids. Start and End frame the graph; main steps and alternate steps
   // each get a position-based id so a repeated activity stays distinct.
   const START = "start";
   const END = "end";
@@ -138,8 +138,8 @@ export function deriveStateChart(project: Project, flow: Flow): StateChart {
   rankOf.set(END, endRank);
 
   // --- nodes: start + main spine + end --------------------------------------
-  const addNode = (n: Omit<ChartNode, "x" | "y">): ChartNode => {
-    const node: ChartNode = { ...n, x: laneX(n.lane, n.w), y: PAD + n.rank * ROW };
+  const addNode = (n: Omit<DiagramNode, "x" | "y">): DiagramNode => {
+    const node: DiagramNode = { ...n, x: laneX(n.lane, n.w), y: PAD + n.rank * ROW };
     nodes.push(node);
     return node;
   };
@@ -163,9 +163,7 @@ export function deriveStateChart(project: Project, flow: Flow): StateChart {
   addNode({ id: END, kind: "end", label: "End", rank: endRank, lane: 0, w: CAP_W, h: CAP_H });
 
   // --- main sequential edges ------------------------------------------------
-  // Start → first step → … → last step → End (or Start → End for an empty
-  // main path that still carries branches off step -1, which can't happen since
-  // those are out of range and skipped — so an empty main is already `empty`).
+  // Start → first step → … → last step → End.
   if (flow.main.length > 0) {
     rawEdges.push({ from: START, to: mainId(0), kind: "seq", formal: false });
     for (let i = 0; i < flow.main.length - 1; i++) {
@@ -250,7 +248,7 @@ export function deriveStateChart(project: Project, flow: Flow): StateChart {
     laneOfKey.set(p.key, lane + 1);
   }
   // Re-place alternate step nodes now that their lane is known.
-  const byId = new Map<string, ChartNode>();
+  const byId = new Map<string, DiagramNode>();
   for (const p of placements) {
     const lane = laneOfKey.get(p.key)!;
     for (const id of p.stepIds) {
@@ -262,7 +260,7 @@ export function deriveStateChart(project: Project, flow: Flow): StateChart {
   for (const n of nodes) byId.set(n.id, n);
 
   // --- edge paths -----------------------------------------------------------
-  const edges: ChartEdge[] = rawEdges.map((e) => {
+  const edges: DiagramEdge[] = rawEdges.map((e) => {
     const a = byId.get(e.from)!;
     const b = byId.get(e.to)!;
     const back = (rankOf.get(e.to) ?? 0) <= (rankOf.get(e.from) ?? 0);
@@ -283,11 +281,11 @@ export function deriveStateChart(project: Project, flow: Flow): StateChart {
 
 /** A forward edge: leave the bottom of `a`, arrive at the top of `b`, with a
  *  vertical tangent at both ends so it meets the down-pointing arrowhead. */
-function forwardPath(a: ChartNode, b: ChartNode): { d: string; labelX: number; labelY: number } {
+function forwardPath(a: DiagramNode, b: DiagramNode): { d: string; labelX: number; labelY: number } {
   const x1 = a.x + a.w / 2;
   const y1 = a.y + a.h;
   const x2 = b.x + b.w / 2;
-  const yEnd = b.y - CHART_ARROW_GAP - CHART_ARROW_LEN;
+  const yEnd = b.y - DIAGRAM_ARROW_GAP - DIAGRAM_ARROW_LEN;
   const my = (y1 + yEnd) / 2;
   const d = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${yEnd}`;
   return { d, labelX: (x1 + x2) / 2, labelY: my };
@@ -295,14 +293,14 @@ function forwardPath(a: ChartNode, b: ChartNode): { d: string; labelX: number; l
 
 /** A back (rejoin) edge to an equal/earlier rank: bow out to the right, run
  *  up, and enter the target's right side with a leftward arrowhead. */
-function backPath(a: ChartNode, b: ChartNode): { d: string; labelX: number; labelY: number } {
+function backPath(a: DiagramNode, b: DiagramNode): { d: string; labelX: number; labelY: number } {
   const x1 = a.x + a.w;
   const y1 = a.y + a.h / 2;
   const x2 = b.x + b.w;
   const y2 = b.y + b.h / 2;
   const bow = 56;
   const cx = Math.max(x1, x2) + bow;
-  const xEnd = x2 + CHART_ARROW_GAP + CHART_ARROW_LEN;
+  const xEnd = x2 + DIAGRAM_ARROW_GAP + DIAGRAM_ARROW_LEN;
   const d = `M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${xEnd} ${y2}`;
   return { d, labelX: cx - 10, labelY: (y1 + y2) / 2 };
 }

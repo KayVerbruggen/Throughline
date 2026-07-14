@@ -10,7 +10,6 @@ const TITLES: Record<ViewId, string> = {
   requirements: "Requirements",
   structure: "System Structure",
   behavior: "System Behavior",
-  "state-chart": "State Chart",
   decisions: "Design Decisions",
   glossary: "Glossary",
   tests: "Tests",

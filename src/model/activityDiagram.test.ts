@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveStateChart } from "./statechart";
+import { deriveActivityDiagram } from "./activityDiagram";
 import { emptyProject, type Activity, type Component, type Flow, type Project } from "../types";
 
 function component(id: string, activities: Activity[]): Component {
@@ -25,12 +25,12 @@ function project(): Project {
 }
 
 const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
-const edge = (c: ReturnType<typeof deriveStateChart>, from: string, to: string) =>
+const edge = (c: ReturnType<typeof deriveActivityDiagram>, from: string, to: string) =>
   c.edges.find((e) => e.from === from && e.to === to);
 
-describe("state chart derivation (Stage 3)", () => {
+describe("activity-diagram derivation", () => {
   it("frames the main path with Start and End nodes", () => {
-    const chart = deriveStateChart(project(), project().flows[0]);
+    const chart = deriveActivityDiagram(project(), project().flows[0]);
     expect(chart.empty).toBe(false);
     expect(ids(chart.nodes)).toEqual(["start", "m0", "m1", "m2", "end"]);
     // Sequential spine, in order.
@@ -54,11 +54,9 @@ describe("state chart derivation (Stage 3)", () => {
         },
       ]),
     ];
-    // Give C-001 the referenced variable so nothing throws on resolution
-    // (derivation doesn't type-check, but keep the fixture honest).
     p.components[0].variables = [{ id: "VAR-001", name: "count", type: { kind: "int" } }];
 
-    const chart = deriveStateChart(p, p.flows[0]);
+    const chart = deriveActivityDiagram(p, p.flows[0]);
     // Branch edge from the after-step into the alternate's first step.
     const branch = edge(chart, "m0", "AP-1#0");
     expect(branch?.kind).toBe("branch");
@@ -76,7 +74,7 @@ describe("state chart derivation (Stage 3)", () => {
         { id: "AP-1", condition: "the card is not recognised", after: 0, rejoin: -1, steps: [] },
       ]),
     ];
-    const chart = deriveStateChart(p, p.flows[0]);
+    const chart = deriveActivityDiagram(p, p.flows[0]);
     // A step-less, guard-less branch is a single labelled edge to End.
     const branch = edge(chart, "m0", "end");
     expect(branch?.kind).toBe("branch");
@@ -91,7 +89,7 @@ describe("state chart derivation (Stage 3)", () => {
         { id: "AP-1", condition: "retry", after: 2, rejoin: 0, steps: [] },
       ]),
     ];
-    const chart = deriveStateChart(p, p.flows[0]);
+    const chart = deriveActivityDiagram(p, p.flows[0]);
     expect(edge(chart, "m2", "m0")?.back).toBe(true);
   });
 
@@ -102,7 +100,7 @@ describe("state chart derivation (Stage 3)", () => {
         { id: "AP-1", condition: "orphan", after: 5, rejoin: -1, steps: ["ACT-002"] },
       ]),
     ];
-    const chart = deriveStateChart(p, p.flows[0]);
+    const chart = deriveActivityDiagram(p, p.flows[0]);
     expect(chart.byId.has("AP-1#0")).toBe(false);
     expect(ids(chart.nodes)).toEqual(["start", "m0", "end"]);
   });
@@ -110,7 +108,7 @@ describe("state chart derivation (Stage 3)", () => {
   it("reports an empty flow", () => {
     const p = project();
     p.flows = [flow("FL-001", [])];
-    const chart = deriveStateChart(p, p.flows[0]);
+    const chart = deriveActivityDiagram(p, p.flows[0]);
     expect(chart.empty).toBe(true);
     expect(chart.nodes).toEqual([]);
   });
@@ -124,7 +122,7 @@ describe("state chart derivation (Stage 3)", () => {
         { id: "AP-2", condition: "two", after: 2, rejoin: -1, steps: ["ACT-004"] },
       ]),
     ];
-    const chart = deriveStateChart(p, p.flows[0]);
+    const chart = deriveActivityDiagram(p, p.flows[0]);
     // Both alternates are vertically disjoint, so both take lane 1.
     expect(chart.byId.get("AP-1#0")?.lane).toBe(1);
     expect(chart.byId.get("AP-2#0")?.lane).toBe(1);

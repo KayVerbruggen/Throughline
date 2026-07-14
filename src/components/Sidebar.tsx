@@ -18,7 +18,6 @@ const NAV: NavDef[] = [
   { id: "tests", label: "Tests", icon: "test" },
   { id: "structure", label: "System Structure", icon: "structure" },
   { id: "behavior", label: "System Behavior", icon: "behavior" },
-  { id: "state-chart", label: "State Chart", icon: "statechart" },
   { id: "decisions", label: "Design Decisions", icon: "decision" },
   { id: "glossary", label: "Glossary", icon: "glossary" },
   { id: "traceability", label: "Traceability", icon: "trace" },

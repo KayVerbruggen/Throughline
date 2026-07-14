@@ -17,7 +17,6 @@ export type ViewId =
   | "requirements"
   | "structure"
   | "behavior"
-  | "state-chart"
   | "decisions"
   | "glossary"
   | "tests"

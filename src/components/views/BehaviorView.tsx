@@ -20,6 +20,7 @@ import { useStore } from "../../state/store";
 import type { AltPath, Component, Flow, UseCase } from "../../types";
 import { Icon } from "../icons";
 import { useConfirm } from "../useConfirm";
+import { FlowDiagram } from "./FlowDiagram";
 
 const NEW_COMPONENT = "__new__";
 const ALT_ACCENT = "oklch(0.62 0.13 70)";
@@ -56,7 +57,7 @@ export function BehaviorView() {
 
   return (
     <div style={{ padding: "20px 26px 64px" }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
         {project.useCases.map((u) => (
           <UcTab key={u.id} uc={u} active={u.id === ucId} onClick={() => setUcId(u.id)} />
         ))}
@@ -140,8 +141,44 @@ function FlowPanel({ uc }: { uc: UseCase }) {
     );
   }
 
-  // Remount per flow so per-flow UI state (which branches are collapsed) resets.
-  return <FlowEditor key={flow.id} flow={flow} uc={uc} />;
+  // Steps on the left (the editor), the derived activity diagram on the right.
+  // The list needs far less width than it used to claim, so splitting frees the
+  // right half for the graph. Remount both per flow so per-flow UI state (which
+  // branches are collapsed) and the diagram reset cleanly on flow switch.
+  return (
+    <div style={{ display: "flex", gap: 22, alignItems: "flex-start" }}>
+      <div style={{ flex: "1 1 0", minWidth: 460 }}>
+        <FlowEditor key={flow.id} flow={flow} uc={uc} />
+      </div>
+      <div
+        style={{
+          flex: "1 1 0",
+          minWidth: 0,
+          position: "sticky",
+          top: 4,
+          alignSelf: "flex-start",
+          borderLeft: "1px solid rgba(var(--line),.08)",
+          paddingLeft: 22,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, height: 30 }}>
+          <span style={{ display: "flex", color: "var(--ter)" }}>
+            <Icon name="diagram" size={16} />
+          </span>
+          <span style={{ font: "600 12.5px 'IBM Plex Sans'", color: "var(--ink)" }}>Activity diagram</span>
+          <span
+            style={{
+              font: "400 11px 'IBM Plex Sans'",
+              color: "var(--faint)",
+            }}
+          >
+            derived from steps &amp; guards
+          </span>
+        </div>
+        <FlowDiagram key={flow.id} flow={flow} />
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
