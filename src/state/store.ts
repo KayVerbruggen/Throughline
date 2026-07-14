@@ -46,6 +46,8 @@ export interface ViewPrefs {
   traceColumns: TraceColumnKind[];
   /** Stakeholder id scoping the traceability grid, or null for all. */
   traceStakeholder: string | null;
+  /** Use case whose flow is open in the behaviour view, or null for the first. */
+  behaviorUseCase: string | null;
 }
 
 const PREFS_KEY = "throughline.viewPrefs";
@@ -55,6 +57,7 @@ const DEFAULT_PREFS: ViewPrefs = {
   structureShow: "both",
   traceColumns: ["need", "use-case", "requirement", "test"],
   traceStakeholder: null,
+  behaviorUseCase: null,
 };
 
 function loadPrefs(): ViewPrefs {

@@ -26,7 +26,10 @@ const ALT_ACCENT = "oklch(0.62 0.13 70)";
 
 export function BehaviorView() {
   const project = useStore((s) => s.project);
-  const [ucId, setUcId] = useState<string | null>(null);
+  // Persisted so the chosen use case survives navigation and window reopens.
+  const ucId = useStore((s) => s.prefs.behaviorUseCase);
+  const setPrefs = useStore((s) => s.setPrefs);
+  const setUcId = (behaviorUseCase: string | null) => setPrefs({ behaviorUseCase });
 
   // Default to the first use case; keep selection valid as the list changes.
   useEffect(() => {
