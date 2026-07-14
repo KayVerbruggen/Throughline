@@ -32,6 +32,8 @@ export interface Selection {
 export type StructureLayoutMode = "tree" | "nested";
 export type StructureShowMode = "hierarchy" | "connections" | "both";
 export type TraceColumnKind = "need" | "use-case" | "requirement" | "test";
+/** Which derived diagram the Behaviour view's right pane shows. */
+export type BehaviorDiagram = "activity" | "sequence";
 
 /**
  * Display choices made in a view's toolbar (structure layout, traceability
@@ -48,6 +50,8 @@ export interface ViewPrefs {
   traceStakeholder: string | null;
   /** Use case whose flow is open in the behaviour view, or null for the first. */
   behaviorUseCase: string | null;
+  /** Which derived diagram the behaviour view's right pane shows. */
+  behaviorDiagram: BehaviorDiagram;
 }
 
 const PREFS_KEY = "throughline.viewPrefs";
@@ -58,6 +62,7 @@ const DEFAULT_PREFS: ViewPrefs = {
   traceColumns: ["need", "use-case", "requirement", "test"],
   traceStakeholder: null,
   behaviorUseCase: null,
+  behaviorDiagram: "activity",
 };
 
 function loadPrefs(): ViewPrefs {

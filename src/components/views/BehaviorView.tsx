@@ -16,11 +16,12 @@ import {
   type StepLoc,
 } from "../../model/flowEdit";
 import { nextId } from "../../model/ids";
-import { useStore } from "../../state/store";
+import { useStore, type BehaviorDiagram } from "../../state/store";
 import type { AltPath, Component, Flow, UseCase } from "../../types";
 import { Icon } from "../icons";
 import { useConfirm } from "../useConfirm";
 import { FlowDiagram } from "./FlowDiagram";
+import { SequenceDiagram } from "./SequenceDiagram";
 
 const NEW_COMPONENT = "__new__";
 const ALT_ACCENT = "oklch(0.62 0.13 70)";
@@ -150,33 +151,89 @@ function FlowPanel({ uc }: { uc: UseCase }) {
       <div style={{ flex: "1 1 0", minWidth: 460 }}>
         <FlowEditor key={flow.id} flow={flow} uc={uc} />
       </div>
-      <div
-        style={{
-          flex: "1 1 0",
-          minWidth: 0,
-          position: "sticky",
-          top: 4,
-          alignSelf: "flex-start",
-          borderLeft: "1px solid rgba(var(--line),.08)",
-          paddingLeft: 22,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, height: 30 }}>
-          <span style={{ display: "flex", color: "var(--ter)" }}>
-            <Icon name="diagram" size={16} />
-          </span>
-          <span style={{ font: "600 12.5px 'IBM Plex Sans'", color: "var(--ink)" }}>Activity diagram</span>
-          <span
+      <DiagramPane flow={flow} />
+    </div>
+  );
+}
+
+// The right pane: a toggle between the two derived diagrams of this flow. The
+// activity diagram is executable (its own Run controls); the sequence diagram is
+// a read-only actor/component interaction view.
+function DiagramPane({ flow }: { flow: Flow }) {
+  const kind = useStore((s) => s.prefs.behaviorDiagram);
+  const setPrefs = useStore((s) => s.setPrefs);
+  const setKind = (behaviorDiagram: BehaviorDiagram) => setPrefs({ behaviorDiagram });
+
+  return (
+    <div
+      style={{
+        flex: "1 1 0",
+        minWidth: 0,
+        position: "sticky",
+        top: 4,
+        alignSelf: "flex-start",
+        borderLeft: "1px solid rgba(var(--line),.08)",
+        paddingLeft: 22,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        <DiagramToggle kind={kind} onChange={setKind} />
+        <span style={{ font: "400 11px 'IBM Plex Sans'", color: "var(--faint)" }}>
+          {kind === "activity"
+            ? "derived from steps & guards"
+            : "derived from activity owners & actors"}
+        </span>
+      </div>
+      {kind === "activity" ? (
+        <FlowDiagram key={flow.id} flow={flow} />
+      ) : (
+        <SequenceDiagram key={flow.id} flow={flow} />
+      )}
+    </div>
+  );
+}
+
+function DiagramToggle({ kind, onChange }: { kind: BehaviorDiagram; onChange: (k: BehaviorDiagram) => void }) {
+  const options: { value: BehaviorDiagram; label: string; icon: "diagram" | "behavior" }[] = [
+    { value: "activity", label: "Activity", icon: "diagram" },
+    { value: "sequence", label: "Sequence", icon: "behavior" },
+  ];
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        padding: 2,
+        gap: 2,
+        border: "1px solid rgba(var(--line),.11)",
+        borderRadius: 8,
+        background: "var(--surface2)",
+      }}
+    >
+      {options.map((o) => {
+        const on = o.value === kind;
+        return (
+          <button
+            key={o.value}
+            onClick={() => onChange(o.value)}
             style={{
-              font: "400 11px 'IBM Plex Sans'",
-              color: "var(--faint)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 11px",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              font: "500 12px 'IBM Plex Sans'",
+              background: on ? "var(--surface)" : "transparent",
+              color: on ? "var(--ink)" : "var(--sub)",
+              boxShadow: on ? "0 1px 2px rgba(var(--line),.08)" : "none",
             }}
           >
-            derived from steps &amp; guards
-          </span>
-        </div>
-        <FlowDiagram key={flow.id} flow={flow} />
-      </div>
+            <Icon name={o.icon} size={14} />
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
