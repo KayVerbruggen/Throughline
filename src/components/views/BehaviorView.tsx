@@ -1084,7 +1084,10 @@ function AltBlock({
         </div>
       ) : (
         <>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          {/* Three stacked rows — If / Branches after / Then — so the controls
+              never crowd or overflow to the right. */}
+          {/* Row 1: IF <condition> */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             {toggleBtn}
             {ifGlyph}
             <input
@@ -1105,6 +1108,16 @@ function AltBlock({
                 outline: "none",
               }}
             />
+            <RowIconButton
+              title="Delete alternate path"
+              onClick={() => void apply(deleteAlternate(project, flow, alt.id))}
+            >
+              <Icon name="trash" size={14} />
+            </RowIconButton>
+          </div>
+
+          {/* Row 2: BRANCHES AFTER <step> */}
+          <div style={{ marginBottom: 8, paddingLeft: 28 }}>
             <AnchorSelect
               label="Branches after"
               value={alt.after}
@@ -1114,18 +1127,16 @@ function AltBlock({
               }))}
               onChange={(v) => void apply(updateAlternate(flow, alt.id, { after: v }))}
             />
+          </div>
+
+          {/* Row 3: THEN <rejoin> */}
+          <div style={{ marginBottom: 12, paddingLeft: 28 }}>
             <AnchorSelect
               label="Then"
               value={alt.rejoin}
               options={rejoinOptions}
               onChange={(v) => void apply(updateAlternate(flow, alt.id, { rejoin: v }))}
             />
-            <RowIconButton
-              title="Delete alternate path"
-              onClick={() => void apply(deleteAlternate(project, flow, alt.id))}
-            >
-              <Icon name="trash" size={14} />
-            </RowIconButton>
           </div>
 
           {/* Formal guard — the machine-readable form of the condition. */}
@@ -1194,7 +1205,7 @@ function AnchorSelect({
   onChange: (v: number) => void;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
       <span
         style={{
           font: "500 9.5px 'IBM Plex Mono'",
@@ -1202,6 +1213,8 @@ function AnchorSelect({
           textTransform: "uppercase",
           color: "var(--ter)",
           whiteSpace: "nowrap",
+          width: 96,
+          flex: "none",
         }}
       >
         {label}
@@ -1210,6 +1223,8 @@ function AnchorSelect({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         style={{
+          flex: 1,
+          minWidth: 0,
           padding: "6px 9px",
           border: "1px solid rgba(var(--line),.12)",
           borderRadius: 7,
@@ -1218,7 +1233,6 @@ function AnchorSelect({
           color: "var(--ink)",
           cursor: "pointer",
           outline: "none",
-          maxWidth: 220,
         }}
       >
         {options.map((o) => (

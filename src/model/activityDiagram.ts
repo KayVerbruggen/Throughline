@@ -304,16 +304,28 @@ function forwardPath(a: DiagramNode, b: DiagramNode): { d: string; labelX: numbe
   return { d, labelX: (x1 + x2) / 2, labelY: my };
 }
 
-/** A back (rejoin) edge to an equal/earlier rank: bow out to the right, run
- *  up, and enter the target's right side with a leftward arrowhead. */
+/** A back (rejoin) edge to an equal/earlier rank. When the source sits in a
+ *  lane to the right of its target (the usual case — an alternate rejoining the
+ *  main spine), leave the source's *left* side and enter the target's right,
+ *  so the arc runs through the gap between the lanes instead of ballooning out
+ *  to the right. For a same/left-lane rejoin, keep a gentle rightward bow. */
 function backPath(a: DiagramNode, b: DiagramNode): { d: string; labelX: number; labelY: number } {
+  const ay = a.y + a.h / 2;
+  const by = b.y + b.h / 2;
+
+  if (a.x > b.x + 1) {
+    const x1 = a.x; // left edge of the source (the alternate node)
+    const x2 = b.x + b.w; // right edge of the target (on the main spine)
+    const xEnd = x2 + DIAGRAM_ARROW_GAP + DIAGRAM_ARROW_LEN;
+    const pull = Math.max(28, (x1 - xEnd) * 0.4);
+    const d = `M ${x1} ${ay} C ${x1 - pull} ${ay}, ${xEnd + pull} ${by}, ${xEnd} ${by}`;
+    return { d, labelX: (x1 + xEnd) / 2, labelY: (ay + by) / 2 };
+  }
+
   const x1 = a.x + a.w;
-  const y1 = a.y + a.h / 2;
   const x2 = b.x + b.w;
-  const y2 = b.y + b.h / 2;
-  const bow = 56;
-  const cx = Math.max(x1, x2) + bow;
+  const cx = Math.max(x1, x2) + 56;
   const xEnd = x2 + DIAGRAM_ARROW_GAP + DIAGRAM_ARROW_LEN;
-  const d = `M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${xEnd} ${y2}`;
-  return { d, labelX: cx - 10, labelY: (y1 + y2) / 2 };
+  const d = `M ${x1} ${ay} C ${cx} ${ay}, ${cx} ${by}, ${xEnd} ${by}`;
+  return { d, labelX: cx - 10, labelY: (ay + by) / 2 };
 }
