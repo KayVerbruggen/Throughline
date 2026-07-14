@@ -86,6 +86,18 @@ const PAD = 28;
 export const DIAGRAM_ARROW_LEN = 9;
 export const DIAGRAM_ARROW_GAP = 2;
 
+// --- node identity (shared with the interpreter) ----------------------------
+// Position-based ids so the flow interpreter and the rendered diagram name the
+// same node the same way — the interpreter's "current node" maps straight onto
+// a diagram node for highlighting.
+
+export const START_NODE = "start";
+export const END_NODE = "end";
+/** Diagram node id for main-path step `i`. */
+export const mainNodeId = (i: number) => `m${i}`;
+/** Diagram node id for step `j` of alternate `altKey`. */
+export const altNodeId = (altKey: string, j: number) => `${altKey}#${j}`;
+
 const mainCx = PAD + NODE_W / 2;
 
 function laneX(lane: number, w: number): number {
@@ -122,11 +134,12 @@ export function deriveActivityDiagram(project: Project, flow: Flow): ActivityDia
   }
 
   // Node ids. Start and End frame the graph; main steps and alternate steps
-  // each get a position-based id so a repeated activity stays distinct.
-  const START = "start";
-  const END = "end";
-  const mainId = (i: number) => `m${i}`;
-  const altId = (altKey: string, j: number) => `${altKey}#${j}`;
+  // each get a position-based id so a repeated activity stays distinct. These
+  // are the shared helpers so the interpreter names nodes identically.
+  const START = START_NODE;
+  const END = END_NODE;
+  const mainId = mainNodeId;
+  const altId = altNodeId;
 
   // --- ranks (vertical position) --------------------------------------------
   // Start at 0; main step i at i+1; End just past the last main step. An
