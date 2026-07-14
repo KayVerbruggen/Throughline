@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 
+import { resolveActor } from "../../model/actors";
 import { composeDecision, componentsForDecision } from "../../model/decision";
 import { composeEars, EARS_META } from "../../model/ears";
 import { componentHandle } from "../../model/expr";
@@ -156,13 +157,8 @@ export function UseCaseBody({
       </Section>
 
       <Section>
-        <FieldLabel hint="(pick or add)">Actors</FieldLabel>
-        <TagEditor
-          values={uc.actors}
-          options={roles}
-          placeholder="add an actor…"
-          onChange={(actors) => update({ actors })}
-        />
+        <FieldLabel hint="(pick a stakeholder or type a name)">Actors</FieldLabel>
+        <ActorEditor values={uc.actors} onChange={(actors) => update({ actors })} />
       </Section>
 
       <Section>
@@ -873,45 +869,65 @@ export function TestBody({
 // Reusable list editors
 // ===========================================================================
 
-function TagEditor({
-  values,
-  options,
-  placeholder,
-  onChange,
-}: {
-  values: string[];
-  options: string[];
-  placeholder?: string;
-  onChange: (v: string[]) => void;
-}) {
+/**
+ * Actor editor for use cases — stakeholder-aware. Each actor entry is resolved
+ * (by stakeholder id or title): a stakeholder-backed actor shows a person glyph
+ * and is clickable to open that stakeholder, while a free-text actor renders
+ * plain. The picker suggests stakeholders first (so actors become traceable
+ * lifelines in the sequence diagram) but still accepts a typed name.
+ */
+function ActorEditor({ values, onChange }: { values: string[]; onChange: (v: string[]) => void }) {
+  const project = useStore((s) => s.project);
+  const select = useStore((s) => s.select);
   const [draft, setDraft] = useState("");
-  const add = () => {
-    const v = draft.trim();
+
+  const resolved = values.map((v) => ({ raw: v, ...resolveActor(project, v) }));
+  const addedIds = new Set(resolved.map((r) => r.id));
+  // Stakeholders not already added, offered as first-class picks.
+  const stakeholderOptions = project.stakeholders
+    .filter((s) => !addedIds.has(s.id))
+    .map((s) => s.title);
+
+  const add = (value?: string) => {
+    const v = (value ?? draft).trim();
     if (v && !values.includes(v)) onChange([...values, v]);
     setDraft("");
   };
+
   return (
     <div>
-      {values.length > 0 && (
+      {resolved.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-          {values.map((a) => (
-            <span
-              key={a}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                font: "400 12.5px 'IBM Plex Sans'",
-                color: "var(--ink)",
-                background: "rgba(var(--line),.05)",
-                padding: "4px 6px 4px 11px",
-                borderRadius: 20,
-              }}
-            >
-              {a}
-              <RemoveButton onClick={() => onChange(values.filter((x) => x !== a))} />
-            </span>
-          ))}
+          {resolved.map((r) => {
+            const linked = !!r.stakeholder;
+            return (
+              <span
+                key={r.raw}
+                title={linked ? `Stakeholder ${r.stakeholder!.id} — click to open` : "Free-text actor"}
+                onClick={linked ? () => select("stakeholder", r.stakeholder!.id) : undefined}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  font: "400 12.5px 'IBM Plex Sans'",
+                  color: linked ? "var(--accent-ink)" : "var(--sub)",
+                  background: linked ? "var(--accent-bg)" : "rgba(var(--line),.05)",
+                  border: `1px solid ${linked ? "var(--accent)" : "transparent"}`,
+                  padding: "3px 6px 3px 9px",
+                  borderRadius: 20,
+                  cursor: linked ? "pointer" : "default",
+                }}
+              >
+                {linked ? (
+                  <span style={{ display: "flex", color: "var(--accent-ink)" }}>
+                    <Icon name="stakeholder" size={12} />
+                  </span>
+                ) : null}
+                {r.label}
+                <RemoveButton onClick={() => onChange(values.filter((x) => x !== r.raw))} />
+              </span>
+            );
+          })}
         </div>
       )}
       <div style={{ display: "flex", gap: 8 }}>
@@ -919,11 +935,11 @@ function TagEditor({
           <Combobox
             value={draft}
             onChange={setDraft}
-            options={options.filter((o) => !values.includes(o))}
-            placeholder={placeholder}
+            options={stakeholderOptions}
+            placeholder="pick a stakeholder or type a name…"
           />
         </div>
-        <AddButton onClick={add} disabled={!draft.trim()}>
+        <AddButton onClick={() => add()} disabled={!draft.trim()}>
           Add
         </AddButton>
       </div>
