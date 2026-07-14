@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { setActivityDetails } from "../../model/flowEdit";
 import {
   deriveSequenceDiagram,
   type Participant,
@@ -28,7 +29,20 @@ function hueOf(id: string): number {
  */
 export function SequenceDiagram({ flow }: { flow: Flow }) {
   const project = useStore((s) => s.project);
+  const upsertArtifact = useStore((s) => s.upsertArtifact);
   const model = useMemo<SeqModel>(() => deriveSequenceDiagram(project, flow), [project, flow]);
+
+  // Which message's sender is being reassigned (index into model.messages).
+  const [editing, setEditing] = useState<number | null>(null);
+  useEffect(() => setEditing(null), [flow]);
+
+  const setSender = async (activityId: string, participantId: string) => {
+    const edit = setActivityDetails(project, flow, activityId, {
+      initiator: participantId || undefined,
+    });
+    for (const c of edit.components) await upsertArtifact(c);
+    setEditing(null);
+  };
 
   if (model.empty) {
     return (
@@ -112,17 +126,132 @@ export function SequenceDiagram({ flow }: { flow: Flow }) {
           <Head key={p.id} p={p} />
         ))}
 
-        {/* Message labels. */}
+        {/* Message labels (click to reassign the sender). */}
         {model.messages.map((m, i) => (
-          <MessageLabel key={i} msg={m} />
+          <MessageLabel key={i} msg={m} active={editing === i} onClick={() => setEditing(editing === i ? null : i)} />
         ))}
 
         {/* Fragment labels. */}
         {model.fragments.map((f) => (
           <FragmentLabel key={f.id} frag={f} />
         ))}
+
+        {/* Sender picker for the message being edited. */}
+        {editing != null && model.messages[editing] ? (
+          <SenderMenu
+            msg={model.messages[editing]}
+            onPick={(pid) => void setSender(model.messages[editing].activityId, pid)}
+            onClose={() => setEditing(null)}
+          />
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function SenderMenu({
+  msg,
+  onPick,
+  onClose,
+}: {
+  msg: SeqMessage;
+  onPick: (participantId: string) => void;
+  onClose: () => void;
+}) {
+  const project = useStore((s) => s.project);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const left = msg.self ? msg.fromX + SELF_W + 8 : (msg.fromX + msg.toX) / 2;
+  const stakeholders = project.stakeholders;
+  const components = project.components;
+
+  return (
+    <>
+      {/* Click-away backdrop. */}
+      <div
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, zIndex: 40 }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left,
+          top: msg.y + 8,
+          transform: "translateX(-50%)",
+          zIndex: 41,
+          minWidth: 190,
+          maxHeight: 240,
+          overflowY: "auto",
+          background: "var(--surface)",
+          border: "1px solid rgba(var(--line),.16)",
+          borderRadius: 9,
+          boxShadow: "0 10px 30px -8px rgba(0,0,0,.3)",
+          padding: 5,
+        }}
+      >
+        <MenuLabel>Sent by</MenuLabel>
+        <MenuItem label="— default (previous step) —" onClick={() => onPick("")} />
+        {stakeholders.length > 0 ? <MenuLabel>Actors</MenuLabel> : null}
+        {stakeholders.map((s) => (
+          <MenuItem key={s.id} label={s.title} icon onClick={() => onPick(s.id)} />
+        ))}
+        <MenuLabel>Components</MenuLabel>
+        {components.map((c) => (
+          <MenuItem key={c.id} label={c.title} onClick={() => onPick(c.id)} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function MenuLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        font: "500 9px 'IBM Plex Mono'",
+        letterSpacing: ".07em",
+        textTransform: "uppercase",
+        color: "var(--faint)",
+        padding: "6px 8px 3px",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function MenuItem({ label, icon, onClick }: { label: string; icon?: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        width: "100%",
+        textAlign: "left",
+        padding: "6px 8px",
+        border: "none",
+        borderRadius: 6,
+        background: "transparent",
+        color: "var(--ink)",
+        font: "400 12.5px 'IBM Plex Sans'",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--line),.06)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      {icon ? (
+        <span style={{ display: "flex", flex: "none", color: "var(--accent-ink)" }}>
+          <Icon name="stakeholder" size={13} />
+        </span>
+      ) : null}
+      {label}
+    </button>
   );
 }
 
@@ -147,12 +276,22 @@ function MessageArc({ msg }: { msg: SeqMessage }) {
   );
 }
 
-function MessageLabel({ msg }: { msg: SeqMessage }) {
+function MessageLabel({
+  msg,
+  active,
+  onClick,
+}: {
+  msg: SeqMessage;
+  active: boolean;
+  onClick: () => void;
+}) {
   const left = msg.self ? msg.fromX + SELF_W + 8 : (msg.fromX + msg.toX) / 2;
   const transform = msg.self ? "translateY(-50%)" : "translate(-50%, -100%)";
   return (
-    <div
-      title={msg.label}
+    <button
+      type="button"
+      title={`${msg.label} — click to set who sends it`}
+      onClick={onClick}
       style={{
         position: "absolute",
         left,
@@ -160,18 +299,19 @@ function MessageLabel({ msg }: { msg: SeqMessage }) {
         transform,
         maxWidth: 200,
         padding: "1px 6px",
+        border: `1px solid ${active ? "var(--accent)" : "transparent"}`,
         borderRadius: 5,
-        background: "var(--surface)",
+        background: active ? "var(--accent-bg)" : "var(--surface)",
         font: "400 11px 'IBM Plex Sans'",
-        color: "var(--ink)",
+        color: active ? "var(--accent-ink)" : "var(--ink)",
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
-        pointerEvents: "none",
+        cursor: "pointer",
       }}
     >
       {msg.label}
-    </div>
+    </button>
   );
 }
 

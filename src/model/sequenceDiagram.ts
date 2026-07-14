@@ -33,6 +33,9 @@ export interface SeqMessage {
   fromId: string;
   toId: string;
   label: string;
+  /** The receiving activity — lets the diagram reassign the sender by editing
+   *  that activity's `initiator`. */
+  activityId: string;
   /** True when sender and receiver are the same lifeline (a self-call). */
   self: boolean;
   /** Id of the alternate this message belongs to, if any (fragment membership). */
@@ -83,6 +86,7 @@ interface RawMsg {
   fromId: string;
   toId: string;
   label: string;
+  activityId: string;
   self: boolean;
   altId?: string;
 }
@@ -133,8 +137,8 @@ export function deriveSequenceDiagram(project: Project, flow: Flow): SequenceDia
   };
 
   const raw: RawMsg[] = [];
-  const emit = (fromId: string, toId: string, label: string, altId?: string) =>
-    raw.push({ fromId, toId, label, self: fromId === toId, altId });
+  const emit = (fromId: string, toId: string, label: string, activityId: string, altId?: string) =>
+    raw.push({ fromId, toId, label, activityId, self: fromId === toId, altId });
 
   let prevMainOwnerId: string | null = null;
 
@@ -148,7 +152,7 @@ export function deriveSequenceDiagram(project: Project, flow: Flow): SequenceDia
       : i === 0
         ? (primaryActor?.id ?? receiver.id)
         : (prevMainOwnerId ?? receiver.id);
-    emit(senderId, receiver.id, act?.label || "(unnamed)");
+    emit(senderId, receiver.id, act?.label || "(unnamed)", actId);
     prevMainOwnerId = receiver.id;
 
     // Alternates diverging after this step, emitted contiguously so their
@@ -161,7 +165,7 @@ export function deriveSequenceDiagram(project: Project, flow: Flow): SequenceDia
         if (!sRecv) continue;
         const sAct = findActivity(project, sActId);
         const sInit = initiatorOf(sActId);
-        emit(sInit ? sInit.id : altPrevId, sRecv.id, sAct?.label || "(unnamed)", alt.id);
+        emit(sInit ? sInit.id : altPrevId, sRecv.id, sAct?.label || "(unnamed)", sActId, alt.id);
         altPrevId = sRecv.id;
       }
     }
