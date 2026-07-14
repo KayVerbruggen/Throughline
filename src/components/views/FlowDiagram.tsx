@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   DIAGRAM_ARROW_LEN,
@@ -7,12 +7,23 @@ import {
   type DiagramEdge,
   type DiagramNode,
 } from "../../model/activityDiagram";
+import {
+  advance,
+  autoStep,
+  autoTransition,
+  initExec,
+  outgoing,
+  variableRows,
+  type ExecState,
+  type Transition,
+  type Valuation,
+} from "../../model/interpret";
 import { useStore } from "../../state/store";
 import type { Flow } from "../../types";
 
 // The guarded transitions are the interesting edges; colour them with the same
-// amber the Behaviour view uses for alternate paths so the diagram and the step
-// list read as one story. The sequential spine stays neutral.
+// amber the Behaviour view uses for alternate paths. The sequential spine stays
+// neutral. A live run highlights the current node and last-taken edge in accent.
 const ALT_ACCENT = "oklch(0.62 0.13 70)";
 
 /** Stable hue per component id, matching the Structure view's node dots. */
@@ -22,10 +33,18 @@ function hueOf(id: string): number {
   return h;
 }
 
+interface RunHandle {
+  exec: ExecState;
+  /** Node the token left on the last advance, for edge highlighting. */
+  prev: string | null;
+  /** Valuation before the last advance, to flag which variables just changed. */
+  prevVal: Valuation | null;
+}
+
 /**
- * The activity diagram for one flow — the "Diagram" alternate of the Behaviour
- * view's step list. Nodes are activities, edges are control flow, and a guarded
- * branch is labelled with its guard. Reads only guards, never effects.
+ * The activity diagram for one flow, plus an in-place interpreter: press Run to
+ * walk the token through it, applying effects and evaluating guards. Nodes are
+ * read-only otherwise (the step editor is right beside it).
  */
 export function FlowDiagram({ flow }: { flow: Flow }) {
   const project = useStore((s) => s.project);
@@ -33,6 +52,56 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
     () => deriveActivityDiagram(project, flow),
     [project, flow],
   );
+
+  const [run, setRun] = useState<RunHandle | null>(null);
+  const [playing, setPlaying] = useState(false);
+
+  // Editing the flow's structure invalidates a running token (node ids shift),
+  // so end any run when the flow changes.
+  useEffect(() => {
+    setRun(null);
+    setPlaying(false);
+  }, [flow]);
+
+  const choices = useMemo<Transition[]>(
+    () => (run && !run.exec.done ? outgoing(project, flow, run.exec) : []),
+    [run, project, flow],
+  );
+  const auto = useMemo(() => autoTransition(choices), [choices]);
+
+  const start = () => setRun({ exec: initExec(project, flow), prev: null, prevVal: null });
+  const step = (t?: Transition) => {
+    setRun((r) => {
+      if (!r || r.exec.done) return r;
+      const chosen = t ?? autoTransition(outgoing(project, flow, r.exec));
+      if (!chosen) return { ...r, exec: { ...r.exec, done: true } };
+      return { exec: advance(project, flow, r.exec, chosen), prev: r.exec.nodeId, prevVal: r.exec.valuation };
+    });
+  };
+  const reset = () => {
+    setPlaying(false);
+    setRun({ exec: initExec(project, flow), prev: null, prevVal: null });
+  };
+  const exit = () => {
+    setPlaying(false);
+    setRun(null);
+  };
+
+  // Auto-play: advance on a timer until the token reaches End.
+  useEffect(() => {
+    if (!playing || !run) return;
+    if (run.exec.done) {
+      setPlaying(false);
+      return;
+    }
+    const id = setTimeout(() => {
+      setRun((r) => {
+        if (!r || r.exec.done) return r;
+        return { exec: autoStep(project, flow, r.exec), prev: r.exec.nodeId, prevVal: r.exec.valuation };
+      });
+    }, 750);
+    return () => clearTimeout(id);
+  }, [playing, run, project, flow]);
 
   if (diagram.empty) {
     return (
@@ -47,38 +116,288 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
           color: "var(--sub)",
         }}
       >
-        {flow.id} has no steps yet. Add activities on the Steps view and they'll appear here.
+        {flow.id} has no steps yet. Add activities on the left and they'll appear here.
       </div>
     );
   }
 
+  const currentId = run?.exec.nodeId ?? null;
+  const activeEdge = run?.prev != null ? { from: run.prev, to: run.exec.nodeId } : null;
+  const changed = run?.prevVal
+    ? new Set(
+        [...run.exec.valuation.entries()]
+          .filter(([k, v]) => run.prevVal!.get(k) !== v)
+          .map(([k]) => k),
+      )
+    : new Set<string>();
+
   return (
-    <div style={{ overflow: "auto", paddingBottom: 12 }}>
-      <div style={{ position: "relative", width: diagram.width, height: diagram.height, minWidth: "100%" }}>
-        <svg
-          width={diagram.width}
-          height={diagram.height}
-          style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
-        >
-          <defs>
-            <ArrowMarker id="diagram-arrow-seq" fill="rgba(var(--line),.5)" />
-            <ArrowMarker id="diagram-arrow-alt" fill={ALT_ACCENT} />
-          </defs>
-          {diagram.edges.map((e, i) => (
-            <Edge key={`${e.from}-${e.to}-${i}`} edge={e} />
+    <div>
+      <RunBar
+        running={run != null}
+        playing={playing}
+        done={run?.exec.done ?? false}
+        onRun={start}
+        onPlay={() => setPlaying((p) => !p)}
+        onStep={() => step()}
+        onReset={reset}
+        onExit={exit}
+      />
+
+      {run ? (
+        <RunState
+          exec={run.exec}
+          choices={choices}
+          auto={auto}
+          changed={changed}
+          onChoose={(t) => step(t)}
+        />
+      ) : null}
+
+      <div style={{ overflow: "auto", paddingBottom: 12 }}>
+        <div style={{ position: "relative", width: diagram.width, height: diagram.height, minWidth: "100%" }}>
+          <svg
+            width={diagram.width}
+            height={diagram.height}
+            style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
+          >
+            <defs>
+              <ArrowMarker id="diagram-arrow-seq" fill="rgba(var(--line),.5)" />
+              <ArrowMarker id="diagram-arrow-alt" fill={ALT_ACCENT} />
+              <ArrowMarker id="diagram-arrow-active" fill="var(--accent)" />
+            </defs>
+            {diagram.edges.map((e, i) => (
+              <Edge
+                key={`${e.from}-${e.to}-${i}`}
+                edge={e}
+                active={!!activeEdge && activeEdge.from === e.from && activeEdge.to === e.to}
+              />
+            ))}
+          </svg>
+
+          {diagram.edges.map((e, i) => (e.label ? <EdgeLabel key={`l-${i}`} edge={e} /> : null))}
+
+          {diagram.nodes.map((n) => (
+            <Node key={n.id} node={n} current={n.id === currentId} dim={run != null && n.id !== currentId} />
           ))}
-        </svg>
-
-        {/* Edge labels (guards) as positioned chips over the SVG. */}
-        {diagram.edges.map((e, i) => (e.label ? <EdgeLabel key={`l-${i}`} edge={e} /> : null))}
-
-        {diagram.nodes.map((n) => (
-          <Node key={n.id} node={n} />
-        ))}
+        </div>
       </div>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Run controls + state
+// ---------------------------------------------------------------------------
+
+function RunBar({
+  running,
+  playing,
+  done,
+  onRun,
+  onPlay,
+  onStep,
+  onReset,
+  onExit,
+}: {
+  running: boolean;
+  playing: boolean;
+  done: boolean;
+  onRun: () => void;
+  onPlay: () => void;
+  onStep: () => void;
+  onReset: () => void;
+  onExit: () => void;
+}) {
+  if (!running) {
+    return (
+      <div style={{ display: "flex", marginBottom: 12 }}>
+        <BarButton onClick={onRun} primary>
+          ▶ Run
+        </BarButton>
+        <span style={{ flex: 1, alignSelf: "center", marginLeft: 10, font: "400 11px 'IBM Plex Sans'", color: "var(--faint)" }}>
+          Walk the token through — applies effects, evaluates guards.
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+      <BarButton onClick={onPlay} primary disabled={done}>
+        {playing ? "⏸ Pause" : "▶ Play"}
+      </BarButton>
+      <BarButton onClick={onStep} disabled={done || playing}>
+        Step
+      </BarButton>
+      <BarButton onClick={onReset}>Reset</BarButton>
+      <BarButton onClick={onExit}>Exit</BarButton>
+    </div>
+  );
+}
+
+function BarButton({
+  children,
+  onClick,
+  primary,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: "6px 13px",
+        border: primary ? "none" : "1px solid rgba(var(--line),.14)",
+        borderRadius: 8,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        background: primary ? "var(--ink)" : "var(--surface)",
+        color: primary ? "var(--bg)" : "var(--sub)",
+        font: "500 12.5px 'IBM Plex Sans'",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RunState({
+  exec,
+  choices,
+  auto,
+  changed,
+  onChoose,
+}: {
+  exec: ExecState;
+  choices: Transition[];
+  auto: Transition | null;
+  changed: Set<string>;
+  onChoose: (t: Transition) => void;
+}) {
+  const project = useStore((s) => s.project);
+  const rows = variableRows(project, exec.valuation);
+
+  return (
+    <div
+      style={{
+        border: "1px solid rgba(var(--line),.1)",
+        borderRadius: 10,
+        background: "var(--surface2)",
+        padding: "11px 13px",
+        marginBottom: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {/* Live valuation. */}
+      {rows.length > 0 ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {rows.map((r) => {
+            const hot = changed.has(r.key);
+            return (
+              <span
+                key={r.key}
+                title={`${r.componentTitle} · ${r.typeLabel}`}
+                style={{
+                  font: "400 11px 'IBM Plex Mono'",
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  background: hot ? "var(--accent-bg)" : "var(--surface)",
+                  border: `1px solid ${hot ? "var(--accent)" : "rgba(var(--line),.12)"}`,
+                  color: hot ? "var(--accent-ink)" : "var(--sub)",
+                }}
+              >
+                {r.name} = <b style={{ color: hot ? "var(--accent-ink)" : "var(--ink)" }}>{String(r.value)}</b>
+              </span>
+            );
+          })}
+        </div>
+      ) : (
+        <span style={{ font: "400 11px 'IBM Plex Sans'", color: "var(--faint)" }}>
+          No component variables yet — add some to see state change as the token moves.
+        </span>
+      )}
+
+      {/* Branch choices when the token is at a decision with more than one path. */}
+      {!exec.done && choices.length > 1 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ font: "500 9.5px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)" }}>
+            Choose branch
+          </span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {choices.map((t, i) => {
+              const isAuto = t === auto;
+              const g = t.guardValue;
+              return (
+                <button
+                  key={i}
+                  onClick={() => onChoose(t)}
+                  title={t.kind === "branch" ? "Alternate branch" : "Continue on the main path"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "5px 10px",
+                    borderRadius: 7,
+                    border: `1px solid ${isAuto ? "var(--accent)" : "rgba(var(--line),.14)"}`,
+                    background: isAuto ? "var(--accent-bg)" : "var(--surface)",
+                    color: isAuto ? "var(--accent-ink)" : "var(--sub)",
+                    font: "400 11.5px 'IBM Plex Sans'",
+                    cursor: "pointer",
+                    maxWidth: 260,
+                  }}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {t.kind === "branch" ? t.label || "branch" : "Continue"}
+                  </span>
+                  {g !== undefined ? (
+                    <span
+                      style={{
+                        font: "600 9px 'IBM Plex Mono'",
+                        color: g ? "oklch(0.55 0.13 150)" : "var(--faint)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {g ? "TRUE" : "FALSE"}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {exec.done ? (
+        <span style={{ font: "500 11.5px 'IBM Plex Sans'", color: "oklch(0.55 0.13 150)" }}>
+          ● Reached End — {exec.steps} step{exec.steps === 1 ? "" : "s"}.
+        </span>
+      ) : null}
+
+      {/* Notes: unmet preconditions, skipped effects, loop cap. */}
+      {exec.notes.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {exec.notes.map((n, i) => (
+            <span key={i} style={{ font: "400 11px/1.4 'IBM Plex Sans'", color: "var(--warn-ink)" }}>
+              ⚠ {n}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SVG pieces
+// ---------------------------------------------------------------------------
 
 function ArrowMarker({ id, fill }: { id: string; fill: string }) {
   return (
@@ -97,16 +416,18 @@ function ArrowMarker({ id, fill }: { id: string; fill: string }) {
   );
 }
 
-function Edge({ edge }: { edge: DiagramEdge }) {
+function Edge({ edge, active }: { edge: DiagramEdge; active: boolean }) {
   const alt = edge.kind !== "seq";
+  const stroke = active ? "var(--accent)" : alt ? ALT_ACCENT : "rgba(var(--line),.45)";
+  const marker = active ? "diagram-arrow-active" : alt ? "diagram-arrow-alt" : "diagram-arrow-seq";
   return (
     <path
       d={edge.d}
       fill="none"
-      stroke={alt ? ALT_ACCENT : "rgba(var(--line),.45)"}
-      strokeWidth={alt ? 1.8 : 1.5}
+      stroke={stroke}
+      strokeWidth={active ? 2.6 : alt ? 1.8 : 1.5}
       strokeDasharray={edge.kind === "rejoin" ? "5 4" : undefined}
-      markerEnd={`url(#${alt ? "diagram-arrow-alt" : "diagram-arrow-seq"})`}
+      markerEnd={`url(#${marker})`}
     />
   );
 }
@@ -139,9 +460,15 @@ function EdgeLabel({ edge }: { edge: DiagramEdge }) {
   );
 }
 
-function Node({ node }: { node: DiagramNode }) {
+// The current node gets an outer accent ring via box-shadow (not a border), so
+// the border longhands below stay stable across rerenders — mixing a `border`
+// shorthand with `borderLeft` while toggling is what React warns about.
+const RING = "0 0 0 2px var(--accent), 0 0 0 6px var(--accent-bg)";
+
+function Node({ node, current, dim }: { node: DiagramNode; current: boolean; dim: boolean }) {
+  const opacity = dim ? 0.5 : 1;
+
   if (node.kind !== "activity") {
-    // Start / End caps.
     const isStart = node.kind === "start";
     return (
       <div
@@ -161,6 +488,8 @@ function Node({ node }: { node: DiagramNode }) {
           font: "500 11px 'IBM Plex Mono'",
           letterSpacing: ".08em",
           textTransform: "uppercase",
+          opacity,
+          boxShadow: current ? RING : undefined,
         }}
       >
         {node.label}
@@ -178,15 +507,19 @@ function Node({ node }: { node: DiagramNode }) {
         top: node.y,
         width: node.w,
         height: node.h,
-        border: "1px solid rgba(var(--line),.12)",
+        // All-longhand borders (the left edge carries the component colour).
+        borderTop: "1px solid rgba(var(--line),.12)",
+        borderRight: "1px solid rgba(var(--line),.12)",
+        borderBottom: "1px solid rgba(var(--line),.12)",
         borderLeft: `3px solid oklch(0.62 0.14 ${hue})`,
         borderRadius: 10,
         background: "var(--surface)",
-        boxShadow: "0 1px 3px rgba(var(--line),.05)",
+        boxShadow: current ? RING : "0 1px 3px rgba(var(--line),.05)",
         padding: "0 12px",
         display: "flex",
         alignItems: "center",
         overflow: "hidden",
+        opacity,
       }}
     >
       <span
