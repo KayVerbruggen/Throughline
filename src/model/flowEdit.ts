@@ -175,7 +175,7 @@ export function setActivityDetails(
   project: Project,
   flow: Flow,
   activityId: string,
-  patch: Partial<Pick<Activity, "pre" | "effects">>,
+  patch: Partial<Pick<Activity, "pre" | "effects" | "initiator">>,
 ): FlowEdit {
   const owner = componentOwning(project, activityId);
   if (!owner) return { flow, components: [] };
@@ -191,6 +191,11 @@ export function setActivityDetails(
       const effects = (patch.effects ?? []).map((e) => e.trim()).filter(Boolean);
       if (effects.length) next.effects = effects;
       else delete next.effects;
+    }
+    if ("initiator" in patch) {
+      const initiator = patch.initiator?.trim();
+      if (initiator) next.initiator = initiator;
+      else delete next.initiator;
     }
     return next;
   });

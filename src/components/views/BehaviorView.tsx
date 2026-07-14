@@ -750,6 +750,55 @@ function ActivityBehaviorEditor({
         </span>
       </div>
 
+      {/* Initiator — who sends the message that triggers this step, in the
+          sequence diagram. Default is the previous step's component. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span
+          title="Sequence diagram: who triggers this step (default = the previous step's component)"
+          style={{ font: "600 11px 'IBM Plex Mono'", color: "var(--sub)", whiteSpace: "nowrap", width: 20 }}
+        >
+          by
+        </span>
+        <select
+          value={activity.initiator ?? ""}
+          onChange={(e) =>
+            void apply(
+              setActivityDetails(project, flow, activityId, { initiator: e.target.value || undefined }),
+            )
+          }
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: "6px 9px",
+            border: "1px solid rgba(var(--line),.12)",
+            borderRadius: 7,
+            background: "var(--surface)",
+            font: "400 12.5px 'IBM Plex Sans'",
+            color: "var(--ink)",
+            cursor: "pointer",
+            outline: "none",
+          }}
+        >
+          <option value="">— previous step (default) —</option>
+          {project.stakeholders.length > 0 ? (
+            <optgroup label="Actors">
+              {project.stakeholders.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+          <optgroup label="Components">
+            {project.components.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+      </div>
+
       {/* Precondition — a bool guard that must hold for the step to run. */}
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
