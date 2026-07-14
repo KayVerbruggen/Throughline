@@ -166,6 +166,38 @@ export function setStepLabel(
 }
 
 /**
+ * Update an activity's formal behaviour (`pre` / `effects`). Activities are
+ * component-owned and shared across flows, so this edits the owning component;
+ * the flow itself is unchanged. Empty values are dropped so the fields stay
+ * absent rather than serialising as blanks.
+ */
+export function setActivityDetails(
+  project: Project,
+  flow: Flow,
+  activityId: string,
+  patch: Partial<Pick<Activity, "pre" | "effects">>,
+): FlowEdit {
+  const owner = componentOwning(project, activityId);
+  if (!owner) return { flow, components: [] };
+  const activities = owner.activities.map((a) => {
+    if (a.id !== activityId) return a;
+    const next: Activity = { ...a };
+    if ("pre" in patch) {
+      const pre = patch.pre?.trim();
+      if (pre) next.pre = pre;
+      else delete next.pre;
+    }
+    if ("effects" in patch) {
+      const effects = (patch.effects ?? []).map((e) => e.trim()).filter(Boolean);
+      if (effects.length) next.effects = effects;
+      else delete next.effects;
+    }
+    return next;
+  });
+  return { flow, components: [{ ...owner, activities }] };
+}
+
+/**
  * Remove the step at `index`. When removing a main step, alternate anchors are
  * shifted so they keep pointing at the right steps. A transient empty-label
  * activity that becomes unreferenced is cleaned up; named activities are kept.
@@ -234,7 +266,7 @@ export function addAlternate(flow: Flow): FlowEdit {
 export function updateAlternate(
   flow: Flow,
   altId: string,
-  patch: Partial<Pick<Flow["alternates"][number], "condition" | "after" | "rejoin">>,
+  patch: Partial<Pick<Flow["alternates"][number], "condition" | "guard" | "after" | "rejoin">>,
 ): FlowEdit {
   const f = cloneFlow(flow);
   f.alternates = f.alternates.map((a) => (a.id === altId ? { ...a, ...patch } : a));

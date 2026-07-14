@@ -7,6 +7,9 @@ const PREFIX: Record<ArtifactKind, string> = {
   requirement: "R",
   component: "C",
   flow: "FL",
+  decision: "D",
+  glossary: "G",
+  test: "T",
 };
 
 function idsForKind(project: Project, kind: ArtifactKind): string[] {
@@ -23,6 +26,12 @@ function idsForKind(project: Project, kind: ArtifactKind): string[] {
       return project.components.map((c) => c.id);
     case "flow":
       return project.flows.map((f) => f.id);
+    case "decision":
+      return project.decisions.map((d) => d.id);
+    case "glossary":
+      return project.glossary.map((t) => t.id);
+    case "test":
+      return project.tests.map((t) => t.id);
   }
 }
 
@@ -41,6 +50,17 @@ export function nextActivityId(project: Project): string {
 export function nextAltId(existing: string[]): string {
   const n = maxNumber(existing, "AP") + 1;
   return `AP-${n}`;
+}
+
+/** Every variable id in use across all components. */
+function allVariableIds(project: Project): string[] {
+  return project.components.flatMap((c) => c.variables.map((v) => v.id));
+}
+
+/** Next unused project-wide variable id, e.g. "VAR-004". */
+export function nextVariableId(project: Project): string {
+  const n = maxNumber(allVariableIds(project), "VAR") + 1;
+  return `VAR-${String(n).padStart(3, "0")}`;
 }
 
 /** Highest numeric suffix currently used for a kind (0 if none). */

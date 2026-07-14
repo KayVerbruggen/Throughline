@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { componentHandle, renameComponentHandle } from "../model/expr";
 import { nextId } from "../model/ids";
 import { createStorage, type StorageAdapter } from "../storage";
 import {
@@ -16,6 +17,9 @@ export type ViewId =
   | "requirements"
   | "structure"
   | "behavior"
+  | "decisions"
+  | "glossary"
+  | "tests"
   | "traceability";
 
 export interface Selection {
@@ -31,20 +35,33 @@ interface AppState {
   view: ViewId;
   search: string;
   selection: Selection | null;
+  /** Breadcrumb of selections navigated through inside the detail panel. */
+  history: Selection[];
   theme: "light" | "dark";
 
   init: () => Promise<void>;
   reload: () => Promise<void>;
+  /** Open a different existing project folder, replacing the current one. */
   chooseProject: () => Promise<void>;
+  /** Create and open a new, empty project (Tauri prompts for its location). */
+  newProject: (name: string) => Promise<void>;
 
   setView: (view: ViewId) => void;
   setSearch: (search: string) => void;
   select: (kind: ArtifactKind, id: string) => void;
+  /** Step back to the previously selected artifact in the panel breadcrumb. */
+  back: () => void;
   closeDetail: () => void;
   toggleTheme: () => void;
   syncSystemTheme: () => void;
 
   createArtifact: (kind: ArtifactKind) => Promise<void>;
+  /**
+   * Create a component nested under `parentId` ("" = top-level) and select it,
+   * so the structure view can add components in place. Kept separate from
+   * `createArtifact` since only components carry a parent.
+   */
+  addComponent: (parentId: string) => Promise<void>;
   updateSelected: (patch: Partial<Artifact>) => Promise<void>;
   deleteSelected: () => Promise<void>;
 
@@ -92,6 +109,12 @@ function bucketOf(project: Project, kind: ArtifactKind): Artifact[] {
       return project.components;
     case "flow":
       return project.flows;
+    case "decision":
+      return project.decisions;
+    case "glossary":
+      return project.glossary;
+    case "test":
+      return project.tests;
   }
 }
 
@@ -113,6 +136,12 @@ function withBucket(project: Project, kind: ArtifactKind, list: Artifact[]): Pro
       return { ...project, components: list as Project["components"] };
     case "flow":
       return { ...project, flows: list as Project["flows"] };
+    case "decision":
+      return { ...project, decisions: list as Project["decisions"] };
+    case "glossary":
+      return { ...project, glossary: list as Project["glossary"] };
+    case "test":
+      return { ...project, tests: list as Project["tests"] };
   }
 }
 
@@ -184,8 +213,11 @@ function newArtifact(project: Project, kind: ArtifactKind): Artifact {
         kind,
         id,
         title: "Untitled component",
+        parent: "",
         description: "",
         activities: [],
+        variables: [],
+        decisions: [],
         created,
       };
     case "flow":
@@ -195,6 +227,41 @@ function newArtifact(project: Project, kind: ArtifactKind): Artifact {
         title: "Untitled flow",
         main: [],
         alternates: [],
+        created,
+      };
+    case "decision":
+      return {
+        kind,
+        id,
+        title: "Untitled decision",
+        status: "proposed",
+        trace: [],
+        context: "",
+        concern: "",
+        decision: "",
+        alternatives: "",
+        criterion: "",
+        downside: "",
+        created,
+      };
+    case "glossary":
+      return {
+        kind,
+        id,
+        title: "Untitled term",
+        aliases: [],
+        definition: "",
+        created,
+      };
+    case "test":
+      return {
+        kind,
+        id,
+        title: "Untitled test",
+        trace: [],
+        file: "",
+        result: "unknown",
+        body: "",
         created,
       };
   }
@@ -221,6 +288,26 @@ export const useStore = create<AppState>((set, get) => {
     });
   };
 
+  /**
+   * Load the just-opened project and reset any UI state tied to the previous
+   * one — a stale selection would point at an artifact that no longer exists.
+   * Shared by `chooseProject` (open existing) and `newProject` (create new).
+   */
+  const openLoaded = async () => {
+    const { storage } = get();
+    set({ loading: true });
+    const project = await storage.load();
+    set({
+      project,
+      ready: true,
+      loading: false,
+      selection: null,
+      history: [],
+      search: "",
+    });
+    void beginWatching();
+  };
+
   return {
     storage: createStorage(),
     project: emptyProject(),
@@ -229,6 +316,7 @@ export const useStore = create<AppState>((set, get) => {
     view: "needs",
     search: "",
     selection: null,
+    history: [],
     theme: initialTheme(),
 
     init: async () => {
@@ -254,16 +342,33 @@ export const useStore = create<AppState>((set, get) => {
       const { storage } = get();
       const ok = await storage.chooseProject();
       if (!ok) return;
-      set({ loading: true });
-      const project = await storage.load();
-      set({ project, ready: true, loading: false });
-      void beginWatching();
+      await openLoaded();
     },
 
-    setView: (view) => set({ view, selection: null, search: "" }),
+    newProject: async (name) => {
+      const { storage } = get();
+      const ok = await storage.createProject(name);
+      if (!ok) return;
+      await openLoaded();
+    },
+
+    setView: (view) => set({ view, selection: null, search: "", history: [] }),
     setSearch: (search) => set({ search }),
-    select: (kind, id) => set({ selection: { kind, id } }),
-    closeDetail: () => set({ selection: null }),
+    select: (kind, id) => {
+      const { selection, history } = get();
+      // Navigating from one artifact to another (e.g. a tagged use case) pushes
+      // the current one onto the breadcrumb so a Back button can return to it.
+      const isSame = selection && selection.kind === kind && selection.id === id;
+      const nextHistory = selection && !isSame ? [...history, selection] : history;
+      set({ selection: { kind, id }, history: nextHistory });
+    },
+    back: () => {
+      const { history } = get();
+      if (history.length === 0) return;
+      const prev = history[history.length - 1];
+      set({ selection: prev, history: history.slice(0, -1) });
+    },
+    closeDetail: () => set({ selection: null, history: [] }),
 
     toggleTheme: () => {
       const theme = get().theme === "light" ? "dark" : "light";
@@ -286,12 +391,48 @@ export const useStore = create<AppState>((set, get) => {
       await storage.save(artifact);
     },
 
+    addComponent: async (parentId) => {
+      const { project, storage } = get();
+      const base = newArtifact(project, "component");
+      const component = { ...base, parent: parentId } as Artifact;
+      const next = withBucket(project, "component", [...project.components, component]);
+      set({ project: next, selection: { kind: "component", id: component.id }, history: [] });
+      await storage.save(component);
+    },
+
     updateSelected: async (patch) => {
       const { project, selection, storage } = get();
       if (!selection) return;
       const current = findArtifact(project, selection);
       if (!current) return;
       const updated = { ...current, ...patch } as Artifact;
+
+      // Renaming a component changes its title-handle, which every guard,
+      // precondition and effect that references its state is written in terms
+      // of. Rewrite those references so the rename can't silently orphan them,
+      // then persist the renamed component plus each artifact that was touched.
+      if (
+        updated.kind === "component" &&
+        current.kind === "component" &&
+        typeof patch.title === "string" &&
+        patch.title !== current.title
+      ) {
+        const oldHandle = componentHandle(current.title);
+        const newHandle = componentHandle(updated.title);
+        const withTitle = replaceArtifact(project, updated);
+        const { project: next, touched } = renameComponentHandle(withTitle, oldHandle, newHandle);
+        set({ project: next });
+
+        const finalComponent = next.components.find((c) => c.id === updated.id) ?? updated;
+        const toSave: Artifact[] = [finalComponent];
+        for (const a of touched) {
+          if (a.kind === "component" && a.id === finalComponent.id) continue;
+          toSave.push(a);
+        }
+        for (const a of toSave) await storage.save(a);
+        return;
+      }
+
       set({ project: replaceArtifact(project, updated) });
       await storage.save(updated);
     },
@@ -320,7 +461,8 @@ export const useStore = create<AppState>((set, get) => {
       const nextList = bucketOf(project, kind).filter((a) => a.id !== id);
       const next = withBucket(project, kind, nextList);
       const clearSel = selection && selection.kind === kind && selection.id === id;
-      set({ project: next, selection: clearSel ? null : selection });
+      if (clearSel) set({ project: next, selection: null, history: [] });
+      else set({ project: next, selection: selection });
       await storage.remove(current);
     },
 

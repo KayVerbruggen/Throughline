@@ -87,6 +87,15 @@ export class TauriStorage implements StorageAdapter {
         case "flow":
           project.flows.push(artifact);
           break;
+        case "decision":
+          project.decisions.push(artifact);
+          break;
+        case "glossary":
+          project.glossary.push(artifact);
+          break;
+        case "test":
+          project.tests.push(artifact);
+          break;
       }
     }
     sortById(project);
@@ -139,18 +148,52 @@ export class TauriStorage implements StorageAdapter {
     const picked = await open({
       directory: true,
       multiple: false,
-      title: "Choose a Throughline project folder",
+      title: "Open a Throughline project folder",
     });
     if (typeof picked !== "string") return false;
-    this.dir = picked;
-    localStorage.setItem(DIR_KEY, picked);
+    this.setDir(picked);
     await invoke("ensure_project", { projectDir: picked });
     return true;
+  }
+
+  async createProject(name: string): Promise<boolean> {
+    const folder = sanitizeFolderName(name);
+    if (!folder) return false;
+    const parent = await open({
+      directory: true,
+      multiple: false,
+      title: `Choose where to create "${folder}"`,
+    });
+    if (typeof parent !== "string") return false;
+    const sep = parent.includes("\\") ? "\\" : "/";
+    const dir = parent.replace(/[\\/]+$/, "") + sep + folder;
+    this.setDir(dir);
+    // ensure_project uses create_dir_all, so this also creates `dir` itself.
+    await invoke("ensure_project", { projectDir: dir });
+    return true;
+  }
+
+  private setDir(dir: string): void {
+    this.dir = dir;
+    localStorage.setItem(DIR_KEY, dir);
   }
 
   private requireDir(): void {
     if (!this.dir) throw new Error("No project folder is open.");
   }
+}
+
+/**
+ * Reduce a user-typed project name to a safe single folder name: drop path
+ * separators and characters Windows/POSIX reject, collapse whitespace. Returns
+ * "" when nothing usable is left (the caller then aborts).
+ */
+function sanitizeFolderName(name: string): string {
+  return name
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[. ]+|[. ]+$/g, "")
+    .trim();
 }
 
 function sortById(project: Project): void {
@@ -161,4 +204,7 @@ function sortById(project: Project): void {
   project.requirements.sort(byId);
   project.components.sort(byId);
   project.flows.sort(byId);
+  project.decisions.sort(byId);
+  project.glossary.sort(byId);
+  project.tests.sort(byId);
 }

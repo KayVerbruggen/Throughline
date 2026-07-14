@@ -110,28 +110,6 @@ export function structureEdges(project: Project): StructureEdge[] {
   return [...byKey.values()];
 }
 
-/**
- * Directed adjacency (from → to) aggregated across flows, used to give the
- * structure layout a sense of flow direction. Undirected edges still come from
- * structureEdges; this only informs layering.
- */
-export function directedComponentEdges(project: Project): [string, string][] {
-  const seen = new Set<string>();
-  const out: [string, string][] = [];
-  for (const flow of project.flows) {
-    for (const [fromAct, toAct] of activityAdjacencies(flow)) {
-      const from = componentOfActivity(project, fromAct);
-      const to = componentOfActivity(project, toAct);
-      if (!from || !to || from.id === to.id) continue;
-      const key = `${from.id}->${to.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push([from.id, to.id]);
-    }
-  }
-  return out;
-}
-
 // --- component ⇄ spine (for the component detail panel) ---------------------
 
 /** Use cases whose flow includes an activity owned by this component. */

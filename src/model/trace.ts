@@ -7,7 +7,7 @@
 //   Need  <-- (trace) --  Use Case  <-- (trace) --  Requirement
 // ---------------------------------------------------------------------------
 
-import type { Need, Project, Requirement, UseCase } from "../types";
+import type { Need, Project, Requirement, Test, UseCase } from "../types";
 
 // --- Forward lookups (follow the stored `trace` arrays) ---------------------
 
@@ -19,6 +19,10 @@ export function useCasesOfRequirement(project: Project, req: Requirement): UseCa
   return project.useCases.filter((u) => req.trace.includes(u.id));
 }
 
+export function requirementsOfTest(project: Project, test: Test): Requirement[] {
+  return project.requirements.filter((r) => test.trace.includes(r.id));
+}
+
 // --- Reverse lookups (computed) ---------------------------------------------
 
 export function useCasesForNeed(project: Project, needId: string): UseCase[] {
@@ -27,6 +31,11 @@ export function useCasesForNeed(project: Project, needId: string): UseCase[] {
 
 export function requirementsForUseCase(project: Project, ucId: string): Requirement[] {
   return project.requirements.filter((r) => r.trace.includes(ucId));
+}
+
+/** Tests that verify a given requirement (reverse of Test.trace). */
+export function testsForRequirement(project: Project, reqId: string): Test[] {
+  return project.tests.filter((t) => t.trace.includes(reqId));
 }
 
 // --- Consistency warnings ---------------------------------------------------
@@ -81,32 +90,62 @@ export function requirementWarning(req: Requirement): Warning | null {
     : null;
 }
 
+/** A test that verifies no requirement. */
+export function testIsOrphan(test: Test): boolean {
+  return test.trace.length === 0;
+}
+
+export function testWarning(test: Test): Warning | null {
+  return testIsOrphan(test) ? { message: "Verifies no requirement" } : null;
+}
+
 // --- Hover chain (for the Traceability view) --------------------------------
 
 /**
- * All artifact IDs connected to `id` across the Need -> Use Case -> Requirement
- * spine, following edges in both directions. Used to light up a trace chain
- * when a card is hovered.
+ * All artifact IDs connected to `id` across the
+ * Need -> Use Case -> Requirement -> Test spine, following edges in both
+ * directions. Used to light up a trace chain when a card is hovered.
  */
 export function chainOf(project: Project, id: string): Set<string> {
   const set = new Set<string>([id]);
 
+  // Pull a requirement's tests (downstream) and its full upstream chain.
+  const addDownFromReq = (reqId: string) => {
+    for (const t of testsForRequirement(project, reqId)) set.add(t.id);
+  };
+  const addUpFromReq = (req: Requirement) => {
+    for (const u of useCasesOfRequirement(project, req)) {
+      set.add(u.id);
+      for (const n of needsOfUseCase(project, u)) set.add(n.id);
+    }
+  };
+
   const need = project.needs.find((n) => n.id === id);
   const uc = project.useCases.find((u) => u.id === id);
   const req = project.requirements.find((r) => r.id === id);
+  const test = project.tests.find((t) => t.id === id);
 
   if (need) {
     for (const u of useCasesForNeed(project, need.id)) {
       set.add(u.id);
-      for (const r of requirementsForUseCase(project, u.id)) set.add(r.id);
+      for (const r of requirementsForUseCase(project, u.id)) {
+        set.add(r.id);
+        addDownFromReq(r.id);
+      }
     }
   } else if (uc) {
     for (const n of needsOfUseCase(project, uc)) set.add(n.id);
-    for (const r of requirementsForUseCase(project, uc.id)) set.add(r.id);
+    for (const r of requirementsForUseCase(project, uc.id)) {
+      set.add(r.id);
+      addDownFromReq(r.id);
+    }
   } else if (req) {
-    for (const u of useCasesOfRequirement(project, req)) {
-      set.add(u.id);
-      for (const n of needsOfUseCase(project, u)) set.add(n.id);
+    addDownFromReq(req.id);
+    addUpFromReq(req);
+  } else if (test) {
+    for (const r of requirementsOfTest(project, test)) {
+      set.add(r.id);
+      addUpFromReq(r);
     }
   }
 

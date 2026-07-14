@@ -88,6 +88,8 @@ export function seedProject(): Project {
         source: "Product strategy memo",
         tags: ["cost", "grid"],
         created: "2026-06-10",
+        // Example of the inferred marker: a speculative need to be confirmed.
+        inferred: true,
         body: "Where tariff data is available, the system could shift non-urgent charging into lower-cost windows to reduce operating cost without missing the driver's departure deadline.",
       },
       {
@@ -313,6 +315,7 @@ export function seedProject(): Project {
         kind: "component",
         id: "C-001",
         title: "Driver Interface",
+        parent: "C-002",
         description:
           "The card reader, display and buttons the driver interacts with at the station.",
         created: "2026-07-01",
@@ -320,25 +323,47 @@ export function seedProject(): Project {
           { id: "ACT-001", label: "Tap access card" },
           { id: "ACT-002", label: "Show time-to-full estimate" },
         ],
+        variables: [],
+        decisions: [],
       },
       {
         kind: "component",
         id: "C-002",
         title: "EVSE Controller",
+        parent: "",
         description:
           "The station's firmware controller: orchestrates authorization, energy delivery and safety monitoring.",
         created: "2026-07-01",
         activities: [
           { id: "ACT-003", label: "Request authorization" },
-          { id: "ACT-004", label: "Begin energy delivery" },
+          {
+            id: "ACT-004",
+            label: "Begin energy delivery",
+            pre: "evseController.state == idle",
+            effects: ["evseController.state := delivering"],
+          },
           { id: "ACT-005", label: "Sample output current" },
-          { id: "ACT-006", label: "Reject the session" },
+          {
+            id: "ACT-006",
+            label: "Reject the session",
+            effects: ["evseController.state := fault"],
+          },
         ],
+        variables: [
+          {
+            id: "VAR-001",
+            name: "state",
+            type: { kind: "enum", values: ["idle", "delivering", "fault"] },
+            initial: "idle",
+          },
+        ],
+        decisions: ["D-001"],
       },
       {
         kind: "component",
         id: "C-003",
         title: "Charge Point Management System",
+        parent: "",
         description:
           "The back-office CPMS that authenticates cards and keeps the audit trail.",
         created: "2026-07-01",
@@ -346,14 +371,26 @@ export function seedProject(): Project {
           { id: "ACT-007", label: "Validate the card" },
           { id: "ACT-008", label: "Record an audit entry" },
         ],
+        variables: [
+          {
+            id: "VAR-002",
+            name: "cardRecognised",
+            type: { kind: "bool" },
+            initial: "true",
+          },
+        ],
+        decisions: ["D-002"],
       },
       {
         kind: "component",
         id: "C-004",
         title: "Vehicle BMS",
+        parent: "",
         description: "The vehicle's battery management system, negotiated with over the connector.",
         created: "2026-07-01",
         activities: [{ id: "ACT-009", label: "Report target state of charge" }],
+        variables: [],
+        decisions: [],
       },
     ],
     flows: [
@@ -368,6 +405,7 @@ export function seedProject(): Project {
           {
             id: "AP-1",
             condition: "the card is not recognised",
+            guard: "chargePointManagementSystem.cardRecognised == false",
             after: 2, // after "Validate the card"
             rejoin: -1, // terminates the flow
             steps: ["ACT-006"], // EVSE rejects the session
@@ -382,6 +420,87 @@ export function seedProject(): Project {
         // Driver → EVSE → CPMS → CPMS
         main: ["ACT-001", "ACT-003", "ACT-007", "ACT-008"],
         alternates: [],
+      },
+    ],
+    decisions: [
+      {
+        kind: "decision",
+        id: "D-001",
+        title: "Hardware overcurrent interrupt",
+        status: "accepted",
+        trace: ["UC-001"],
+        context: "station power stage",
+        concern: "an overcurrent fault can damage the connector and vehicle faster than firmware can react",
+        decision: "interrupt energy delivery in hardware within 100 ms of an overcurrent",
+        alternatives: "detecting overcurrent by polling in the firmware control loop",
+        criterion: "driver and equipment safety independent of software timing",
+        downside: "an occasional false trip on a transient current spike",
+        created: "2026-07-03",
+      },
+      {
+        kind: "decision",
+        id: "D-002",
+        title: "Validate cards at the CPMS",
+        status: "accepted",
+        trace: ["UC-002"],
+        context: "card authentication path",
+        concern: "a station could be tricked by a cloned card if it decides locally",
+        decision: "validate every card against the central CPMS before authorizing",
+        alternatives: "caching an allow-list of card UIDs on the station for offline use",
+        criterion: "central revocation and a single authoritative audit trail",
+        downside: "a hard dependency on network connectivity to start a session",
+        created: "2026-07-03",
+      },
+    ],
+    tests: [
+      {
+        kind: "test",
+        id: "T-001",
+        title: "Delivery starts within 5s of authorization",
+        trace: ["R-001"],
+        file: "firmware/test/delivery_start_test.c",
+        result: "pass",
+        created: "2026-07-04",
+        body: "Authorizes a session on a bench rig and asserts energy delivery begins within the 5-second budget.",
+      },
+      {
+        kind: "test",
+        id: "T-002",
+        title: "Overcurrent trips within 100ms",
+        trace: ["R-003"],
+        file: "firmware/test/overcurrent_test.c",
+        result: "fail",
+        created: "2026-07-04",
+        body: "Injects an overcurrent above the connector's rated limit and measures the interrupt latency. Currently failing: trip observed at ~140 ms.",
+      },
+    ],
+    glossary: [
+      {
+        kind: "glossary",
+        id: "G-001",
+        title: "EVSE",
+        aliases: ["Electric Vehicle Supply Equipment", "charge point"],
+        created: "2026-07-03",
+        definition:
+          "The charging station hardware and firmware that delivers energy to a vehicle and enforces the safety envelope during a session.",
+      },
+      {
+        kind: "glossary",
+        id: "G-002",
+        title: "CPMS",
+        aliases: ["Charge Point Management System", "back office"],
+        created: "2026-07-03",
+        definition:
+          "The central back-office system a station talks to (over OCPP) for card authorization, telemetry, and remote control.",
+      },
+      {
+        kind: "glossary",
+        id: "G-003",
+        title: "State of charge",
+        aliases: ["SoC"],
+        created: "2026-07-03",
+        definition:
+          "The battery's current charge level as a percentage of its capacity. Reaching the target state of charge is one way a session completes.",
       },
     ],
   };

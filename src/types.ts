@@ -16,9 +16,21 @@ export type ArtifactKind =
   | "use-case"
   | "requirement"
   | "component"
-  | "flow";
+  | "flow"
+  | "decision"
+  | "glossary"
+  | "test";
 
 export type Status = "draft" | "approved" | "deprecated";
+
+/**
+ * Lifecycle of a design decision. Unlike the spine artifacts a decision isn't
+ * prioritised (MoSCoW) — it's a recorded choice — so it carries its own status
+ * rather than reusing the draft/approved/deprecated ladder.
+ */
+export type DecisionStatus = "proposed" | "accepted" | "superseded";
+
+export const DECISION_STATUSES: DecisionStatus[] = ["proposed", "accepted", "superseded"];
 
 export type Moscow = "must" | "should" | "could" | "wont";
 
@@ -60,6 +72,14 @@ interface ArtifactBase {
   moscow: Moscow;
   /** ISO date string (YYYY-MM-DD). */
   created?: string;
+  /**
+   * Marks an artifact as inferred / low-confidence — e.g. produced by
+   * reverse-engineering and not yet confirmed by a human. Distinct from
+   * `status` (a lifecycle stage): an artifact can be `approved` in status yet
+   * still `inferred`, flagging it as "structure is plausible, please verify".
+   * Absent/false means authored-and-trusted.
+   */
+  inferred?: boolean;
 }
 
 /**
@@ -78,6 +98,8 @@ export interface Stakeholder {
   /** Optional free-text description of who they are and what they care about. */
   body: string;
   created?: string;
+  /** Inferred / low-confidence — see ArtifactBase.inferred. */
+  inferred?: boolean;
 }
 
 export interface Need extends ArtifactBase {
@@ -152,6 +174,44 @@ export interface Activity {
   /** e.g. "ACT-001". Project-wide unique so flows can reference it directly. */
   id: string;
   label: string;
+  /**
+   * Optional precondition: a boolean guard over component variables that must
+   * hold for the step to run (e.g. `chamber.vesselCount == 0`). The label
+   * remains the human form; `pre` is the machine-readable one. (Stage 1.)
+   */
+  pre?: string;
+  /**
+   * Optional state effects applied when the activity runs, each an assignment
+   * `head.name := value` (e.g. `upstreamGate.state := open`). Together these
+   * make a flow a transition function over the state valuation. (Stage 1.)
+   */
+  effects?: string[];
+}
+
+/**
+ * The type of a component state variable. This is the small type universe the
+ * behaviour expression language (see `model/expr`) understands — enough to
+ * express and type-check guards like `chamber.vesselCount != 0`.
+ */
+export type VarType =
+  | { kind: "bool" }
+  | { kind: "int"; min?: number; max?: number }
+  | { kind: "enum"; values: string[] };
+
+/**
+ * A typed piece of state owned by a component. Guards and (later) activity
+ * effects are expressions over these variables, referenced as
+ * `<componentHandle>.<name>` (e.g. `chamber.vesselCount`). This is the
+ * foundation for making behaviour formal and executable.
+ */
+export interface Variable {
+  /** e.g. "VAR-001". Project-wide unique so a guard survives relocation. */
+  id: string;
+  /** Identifier used in expressions, unique within its component (e.g. "vesselCount"). */
+  name: string;
+  type: VarType;
+  /** Raw literal for the variable's starting value, used by the simulator (Stage 2). */
+  initial?: string;
 }
 
 export interface Component {
@@ -159,11 +219,30 @@ export interface Component {
   /** e.g. "C-001". */
   id: string;
   title: string;
+  /**
+   * Id of the component this one is a part of (composition/ownership), or "" if
+   * it is top-level. This is the ONE structural relationship that is authored
+   * and stored — unlike flow-derived connections, a component's place in the
+   * system hierarchy can't be inferred from behaviour. Cycles and dangling
+   * parents are tolerated on read (treated as top-level); the editor prevents
+   * creating them.
+   */
+  parent: string;
   /** Optional free-text description. */
   description: string;
   /** The activities this component is responsible for. */
   activities: Activity[];
+  /** Typed state this component owns, referenced by behaviour expressions. */
+  variables: Variable[];
+  /**
+   * IDs of the Design Decisions (e.g. "D-002") that shaped this component —
+   * the "why it is the way it is". A forward link the component owns; the
+   * decision doesn't list its components (that reverse view is computed).
+   */
+  decisions: string[];
   created?: string;
+  /** Inferred / low-confidence — see ArtifactBase.inferred. */
+  inferred?: boolean;
 }
 
 /**
@@ -175,7 +254,15 @@ export interface Component {
 export interface AltPath {
   /** e.g. "AP-1", unique within its flow. */
   id: string;
+  /** Human-readable label for the branch, e.g. "the card is not recognised". */
   condition: string;
+  /**
+   * Optional machine-readable guard: a boolean expression over component
+   * variables (e.g. `chamber.vesselCount != 0`) that formalises `condition`.
+   * When present it type-checks against the model; `condition` remains the
+   * display label. Absent for branches not yet formalised.
+   */
+  guard?: string;
   after: number;
   rejoin: number;
   /** Activity ids, in order. */
@@ -191,6 +278,103 @@ export interface Flow {
   main: string[];
   alternates: AltPath[];
   created?: string;
+  /** Inferred / low-confidence — see ArtifactBase.inferred. */
+  inferred?: boolean;
+}
+
+/**
+ * A recorded design decision, authored in a fixed "Y-statement" template so
+ * every decision reads the same way and the rationale (including what was
+ * rejected and the accepted downside) is captured, not just the choice:
+ *
+ *   In the <context>, facing <concern>, we decided <decision> and not
+ *   <alternatives> to achieve <criterion>, accepting <downside>.
+ *
+ * The full sentence is composed from these slots (see model/decision.ts),
+ * never hand-typed — the same generated-body approach as EARS requirements.
+ * Decisions trace to the Use Cases they address; components link back to them.
+ */
+export interface Decision {
+  kind: "decision";
+  /** e.g. "D-001". Duplicated on disk so identity survives a rename. */
+  id: string;
+  title: string;
+  status: DecisionStatus;
+  /** Use Case IDs this decision addresses. Always an array. */
+  trace: string[];
+  /** The situation / where we are — "In the <context>". */
+  context: string;
+  /** The problem or force at play — "facing <concern>". */
+  concern: string;
+  /** The choice made — "we decided <decision>". */
+  decision: string;
+  /** Rejected options — "and not <alternatives>". Optional. */
+  alternatives: string;
+  /** The goal the choice serves — "to achieve <criterion>". */
+  criterion: string;
+  /** The cost knowingly taken on — "accepting <downside>". Optional. */
+  downside: string;
+  created?: string;
+  /** Inferred / low-confidence — see ArtifactBase.inferred. */
+  inferred?: boolean;
+}
+
+/**
+ * A domain-glossary term: the shared vocabulary of the project. Kept as
+ * first-class artifacts (one file each) so definitions live in one place and
+ * other artifacts' prose can lean on precise terms instead of restating them.
+ * The title is the term; the definition is the markdown body.
+ */
+export interface Term {
+  kind: "glossary";
+  /** e.g. "G-001". */
+  id: string;
+  /** The term being defined — e.g. "Structure connection". */
+  title: string;
+  /** Synonyms / abbreviations that mean the same thing. */
+  aliases: string[];
+  /** The definition (markdown body). */
+  definition: string;
+  created?: string;
+  /** Inferred / low-confidence — see ArtifactBase.inferred. */
+  inferred?: boolean;
+}
+
+/**
+ * The last-known outcome of a test. Unlike the spine's `status` lifecycle this
+ * is a factual result an author or CI records into the file — the tool itself
+ * doesn't run the test, it stores what was reported. `unknown` means not yet run
+ * (or the result hasn't been recorded).
+ */
+export type TestResult = "pass" | "fail" | "unknown";
+
+export const TEST_RESULTS: TestResult[] = ["pass", "fail", "unknown"];
+
+/**
+ * A verification that a requirement holds. Tests are the leaf of the trace
+ * spine — they cover requirements the way requirements cover use cases — so a
+ * requirement with no test is unverified and a test with no trace is orphaned.
+ *
+ * Like Component/Decision, a Test is lean: no MoSCoW/status lifecycle. It just
+ * carries where it lives (`file`), its latest `result`, and a forward trace to
+ * the requirement(s) it verifies. The description is the markdown body.
+ */
+export interface Test {
+  kind: "test";
+  /** e.g. "T-001". Duplicated on disk so identity survives a rename. */
+  id: string;
+  title: string;
+  /** Requirement IDs this test covers. Always an array (forward trace). */
+  trace: string[];
+  /** Where the test lives, e.g. "src/model/trace.test.ts". "" if not located. */
+  file: string;
+  /** Latest known outcome. Recorded by an author or CI; the tool never runs it. */
+  result: TestResult;
+  /** What the test checks (markdown body). */
+  body: string;
+  created?: string;
+  /** Inferred / low-confidence — see ArtifactBase.inferred. */
+  inferred?: boolean;
 }
 
 export type Artifact =
@@ -199,7 +383,10 @@ export type Artifact =
   | UseCase
   | Requirement
   | Component
-  | Flow;
+  | Flow
+  | Decision
+  | Term
+  | Test;
 
 /**
  * The prioritised spine artifacts (Need → Use Case → Requirement). Unlike
@@ -216,6 +403,9 @@ export interface Project {
   requirements: Requirement[];
   components: Component[];
   flows: Flow[];
+  decisions: Decision[];
+  glossary: Term[];
+  tests: Test[];
 }
 
 export function emptyProject(): Project {
@@ -226,5 +416,8 @@ export function emptyProject(): Project {
     requirements: [],
     components: [],
     flows: [],
+    decisions: [],
+    glossary: [],
+    tests: [],
   };
 }

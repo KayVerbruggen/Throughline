@@ -25,11 +25,19 @@ export interface StorageAdapter {
   remove(artifact: Artifact): Promise<void>;
 
   /**
-   * Prompt the user to choose/create a project location (Tauri opens a folder
+   * Prompt the user to open an *existing* project location (Tauri opens a folder
    * dialog; browser resets to the seeded sample). Resolves true when a project
    * is ready afterwards.
    */
   chooseProject(): Promise<boolean>;
+
+  /**
+   * Create a brand-new, empty project. Tauri prompts for a parent location and
+   * creates a `name` subfolder there (scaffolding the per-kind folders); the
+   * browser fallback starts a fresh empty in-memory project. Resolves true when
+   * the new project is ready afterwards, false if the user cancelled.
+   */
+  createProject(name: string): Promise<boolean>;
 
   /**
    * Watch the project's files for changes made outside the app — a manual edit

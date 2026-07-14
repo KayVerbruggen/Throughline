@@ -7,7 +7,13 @@ import { seedProject } from "./seed";
 // rather than loading a value missing newer collections:
 //   .v2 — Stakeholders became first-class
 //   .v3 — Components + Flows (System Structure / Behavior)
-const KEY = "throughline.project.v3";
+//   .v4 — Component state variables + branch guards (formal behaviour)
+//   .v5 — Component hierarchy (Component.parent, nested structure view)
+//   .v6 — Activity preconditions + effects (executable behaviour)
+//   .v7 — Design decisions + glossary terms (Component.decisions)
+//   .v8 — Inferred / low-confidence marker (example on N-004)
+//   .v9 — Tests (verification of requirements; T-… kind, tests/ folder)
+const KEY = "throughline.project.v9";
 
 /**
  * Browser fallback: keeps the whole project as JSON in localStorage, seeded
@@ -59,8 +65,15 @@ export class BrowserStorage implements StorageAdapter {
   }
 
   async chooseProject(): Promise<boolean> {
-    // Reset the sample project.
+    // No real folders in the browser — reset to the seeded sample project.
     this.write(seedProject());
+    return true;
+  }
+
+  async createProject(): Promise<boolean> {
+    // Start a fresh, empty in-memory project (the name is only meaningful for
+    // the Tauri file backend, which creates a folder for it).
+    this.write(emptyProject());
     return true;
   }
 }
@@ -79,6 +92,12 @@ function bucket(project: Project, kind: Artifact["kind"]): Artifact[] {
       return project.components;
     case "flow":
       return project.flows;
+    case "decision":
+      return project.decisions;
+    case "glossary":
+      return project.glossary;
+    case "test":
+      return project.tests;
   }
 }
 

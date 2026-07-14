@@ -12,6 +12,9 @@
 //!   requirements/   R-001.md, ...
 //!   components/     C-001.md, ...
 //!   flows/          FL-001.md, ...
+//!   decisions/      D-001.md, ...
+//!   glossary/       G-001.md, ...
+//!   tests/          T-001.md, ...
 //! ```
 //!
 //! Rust deliberately does no YAML parsing: it moves raw file text in and out and
@@ -35,6 +38,9 @@ const KIND_DIRS: &[(&str, &str)] = &[
     ("requirement", "requirements"),
     ("component", "components"),
     ("flow", "flows"),
+    ("decision", "decisions"),
+    ("glossary", "glossary"),
+    ("test", "tests"),
 ];
 
 /// A single artifact file as raw text, tagged with its kind.

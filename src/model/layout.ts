@@ -1,14 +1,21 @@
 // ---------------------------------------------------------------------------
 // Structure-diagram layout.
 //
-// Components are laid out in columns (layers) following the direction of flow,
-// then reordered within each column by a barycenter sweep — the standard
-// Sugiyama crossing-reduction heuristic — so connection lines overlap as little
-// as possible. Pure and deterministic: same project ⇒ same layout.
+// The structure view draws the component *hierarchy* (composition, authored via
+// Component.parent) two ways, plus the derived flow *connections* on top:
+//
+//   • layoutTree   — a top-down tidy tree; parent→child drawn as directed links.
+//   • layoutNested — blocks nested inside their parent block (a "page"-like view
+//                    for UI-style composition); hierarchy is shown by containment.
+//
+// Connections (structureEdges — two components whose activities run back-to-back
+// in a flow) are laid over either layout as distinct arcs. Both layouts are pure
+// and deterministic: same project ⇒ same layout.
 // ---------------------------------------------------------------------------
 
-import { directedComponentEdges, structureEdges } from "./behavior";
-import type { Component, Project } from "../types";
+import { structureEdges } from "./behavior";
+import { componentForest } from "./hierarchy";
+import type { Project } from "../types";
 
 export interface LaidOutNode {
   id: string;
@@ -16,9 +23,23 @@ export interface LaidOutNode {
   y: number;
   w: number;
   h: number;
+  /** Depth in the hierarchy (0 = top-level), for styling/z-order. */
+  depth: number;
+  /** True when the component has children (a container in nested mode). */
+  container: boolean;
+  /** Title-bar height reserved at the top of a nested container (0 otherwise). */
+  headerH: number;
 }
 
-export interface LaidOutEdge {
+/** A directed parent → child hierarchy link (tree mode). */
+export interface HierEdge {
+  parent: string;
+  child: string;
+  d: string;
+}
+
+/** A derived, undirected flow connection between two components. */
+export interface ConnEdge {
   a: string;
   b: string;
   d: string;
@@ -27,175 +48,259 @@ export interface LaidOutEdge {
 
 export interface StructureLayout {
   nodes: LaidOutNode[];
-  edges: LaidOutEdge[];
+  byId: Map<string, LaidOutNode>;
+  hierEdges: HierEdge[];
+  connEdges: ConnEdge[];
   width: number;
   height: number;
 }
 
-const NODE_W = 194;
-const NODE_H = 88;
-const COL_GAP = 92;
-const ROW_GAP = 26;
-const PAD = 12;
+// --- shared: connection arcs ------------------------------------------------
 
-/** Longest-path layering over the directed edges, with cycles broken by DFS. */
-function assignLayers(ids: string[], directed: [string, string][]): Map<string, number> {
-  const idSet = new Set(ids);
-  const edges = directed.filter(([a, b]) => idSet.has(a) && idSet.has(b));
-
-  // Break cycles: drop edges that point back to a node still on the DFS stack.
-  const adj = new Map<string, string[]>();
-  for (const id of ids) adj.set(id, []);
-  for (const [a, b] of edges) adj.get(a)!.push(b);
-
-  const state = new Map<string, 0 | 1 | 2>(); // 0 unvisited, 1 on-stack, 2 done
-  const acyclic: [string, string][] = [];
-  const dfs = (u: string) => {
-    state.set(u, 1);
-    for (const v of adj.get(u)!) {
-      const s = state.get(v) ?? 0;
-      if (s === 1) continue; // back edge — skip to keep the graph acyclic
-      acyclic.push([u, v]);
-      if (s === 0) dfs(v);
-    }
-    state.set(u, 2);
-  };
-  for (const id of ids) if ((state.get(id) ?? 0) === 0) dfs(id);
-
-  // Longest-path layering on the acyclic edge set.
-  const incoming = new Map<string, string[]>();
-  const outAdj = new Map<string, string[]>();
-  for (const id of ids) {
-    incoming.set(id, []);
-    outAdj.set(id, []);
-  }
-  for (const [a, b] of acyclic) {
-    incoming.get(b)!.push(a);
-    outAdj.get(a)!.push(b);
-  }
-
-  const layer = new Map<string, number>();
-  const indeg = new Map<string, number>(ids.map((id) => [id, incoming.get(id)!.length]));
-  const queue = ids.filter((id) => indeg.get(id) === 0);
-  for (const id of queue) layer.set(id, 0);
-  while (queue.length) {
-    const u = queue.shift()!;
-    for (const v of outAdj.get(u)!) {
-      layer.set(v, Math.max(layer.get(v) ?? 0, (layer.get(u) ?? 0) + 1));
-      indeg.set(v, indeg.get(v)! - 1);
-      if (indeg.get(v) === 0) queue.push(v);
-    }
-  }
-  for (const id of ids) if (!layer.has(id)) layer.set(id, 0);
-  return layer;
-}
-
-/** Order nodes within each column to reduce crossings (barycenter sweeps). */
-function orderWithinLayers(
-  columns: string[][],
-  neighbours: Map<string, string[]>,
-): void {
-  const indexIn = (col: string[]) => {
-    const m = new Map<string, number>();
-    col.forEach((id, i) => m.set(id, i));
-    return m;
-  };
-
-  for (let iter = 0; iter < 6; iter++) {
-    const downward = iter % 2 === 0;
-    const order = downward
-      ? [...columns.keys()]
-      : [...columns.keys()].reverse();
-    for (const ci of order) {
-      const posMaps = columns.map(indexIn);
-      const col = columns[ci];
-      const bary = new Map<string, number>();
-      col.forEach((id, i) => {
-        const ns = neighbours.get(id) ?? [];
-        const positions: number[] = [];
-        for (const n of ns) {
-          for (let li = 0; li < columns.length; li++) {
-            if (li === ci) continue;
-            const p = posMaps[li].get(n);
-            if (p != null) positions.push(p);
-          }
-        }
-        bary.set(id, positions.length ? positions.reduce((a, b) => a + b, 0) / positions.length : i);
-      });
-      col.sort((x, y) => (bary.get(x)! - bary.get(y)!) || 0);
-    }
-  }
-}
-
-function edgePath(a: LaidOutNode, b: LaidOutNode): string {
-  // Anchor on the sides facing each other so lines leave/enter cleanly.
-  const aRight = a.x + a.w;
-  const bRight = b.x + b.w;
+/** A gently bowed arc between the centres of two placed nodes. */
+function connPath(a: LaidOutNode, b: LaidOutNode): string {
+  const ax = a.x + a.w / 2;
   const ay = a.y + a.h / 2;
+  const bx = b.x + b.w / 2;
   const by = b.y + b.h / 2;
-  let x1: number, x2: number;
-  if (a.x + a.w <= b.x) {
-    x1 = aRight;
-    x2 = b.x;
-  } else if (b.x + b.w <= a.x) {
-    x1 = a.x;
-    x2 = bRight;
-  } else {
-    // Same/overlapping column: bow out to the right.
-    x1 = aRight;
-    x2 = bRight;
-    const bow = 34;
-    const cx = Math.max(x1, x2) + bow;
-    return `M ${x1} ${ay} C ${cx} ${ay}, ${cx} ${by}, ${x2} ${by}`;
-  }
-  const dx = (x2 - x1) / 2;
-  return `M ${x1} ${ay} C ${x1 + dx} ${ay}, ${x2 - dx} ${by}, ${x2} ${by}`;
+  const mx = (ax + bx) / 2;
+  const my = (ay + by) / 2;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  // Bow perpendicular so two nodes with several links don't overlap perfectly.
+  const bow = Math.min(38, len * 0.16);
+  const cx = mx - (dy / len) * bow;
+  const cy = my + (dx / len) * bow;
+  return `M ${ax} ${ay} Q ${cx} ${cy} ${bx} ${by}`;
 }
 
-export function layoutStructure(project: Project): StructureLayout {
-  const components: Component[] = project.components;
-  const ids = components.map((c) => c.id);
-  const undirected = structureEdges(project).filter(
-    (e) => ids.includes(e.a) && ids.includes(e.b),
-  );
-  const directed = directedComponentEdges(project);
+function buildConnEdges(project: Project, byId: Map<string, LaidOutNode>): ConnEdge[] {
+  const out: ConnEdge[] = [];
+  for (const e of structureEdges(project)) {
+    const a = byId.get(e.a);
+    const b = byId.get(e.b);
+    if (!a || !b) continue;
+    out.push({ a: e.a, b: e.b, flows: e.flows, d: connPath(a, b) });
+  }
+  return out;
+}
 
-  const layer = assignLayers(ids, directed);
+// --- tree layout ------------------------------------------------------------
 
-  // Neighbours (undirected) drive the crossing-reduction sweeps.
-  const neighbours = new Map<string, string[]>(ids.map((id) => [id, []]));
-  for (const e of undirected) {
-    neighbours.get(e.a)!.push(e.b);
-    neighbours.get(e.b)!.push(e.a);
+const T_NODE_W = 236;
+const T_NODE_H = 96;
+const T_H_GAP = 28; // between sibling subtrees
+const T_V_GAP = 56; // between levels
+const T_PAD = 16;
+
+/**
+ * Arrowhead geometry, shared with the marker drawn in StructureView. The link
+ * line stops at the arrowhead's BASE (`HIER_ARROW_LEN + HIER_ARROW_GAP` above
+ * the child), so the arrow — not the curve — fills the last stretch into the
+ * node. Keep these in sync with the <marker> sizing.
+ */
+export const HIER_ARROW_LEN = 9;
+export const HIER_ARROW_GAP = 2;
+
+/** Directed link from a parent's bottom-centre down to just above the child,
+ *  ending at the base of the arrowhead so the arrow reads cleanly. */
+function hierPath(p: LaidOutNode, c: LaidOutNode): string {
+  const x1 = p.x + p.w / 2;
+  const y1 = p.y + p.h;
+  const x2 = c.x + c.w / 2;
+  const yBase = c.y - HIER_ARROW_GAP - HIER_ARROW_LEN;
+  const my = (y1 + yBase) / 2;
+  // Both the last control point and the end share x2 → vertical arrival, so the
+  // downward-pointing arrowhead lines up with the curve.
+  return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${yBase}`;
+}
+
+/** When `focusId` names an existing component, only that component and its
+ *  descendants are laid out (it becomes the sole root); otherwise the whole
+ *  forest is laid out. */
+export function layoutTree(project: Project, focusId = ""): StructureLayout {
+  const forest = componentForest(project);
+  const { children } = forest;
+  const roots = focusId && forest.children.has(focusId) ? [focusId] : forest.roots;
+  const byId = new Map<string, LaidOutNode>();
+
+  // First pass: measure each subtree's total width.
+  const subtreeW = new Map<string, number>();
+  const measure = (id: string): number => {
+    const kids = children.get(id) ?? [];
+    let w = T_NODE_W;
+    if (kids.length) {
+      const kidsW = kids.reduce((s, k) => s + measure(k), 0) + T_H_GAP * (kids.length - 1);
+      w = Math.max(T_NODE_W, kidsW);
+    }
+    subtreeW.set(id, w);
+    return w;
+  };
+  for (const r of roots) measure(r);
+
+  // Second pass: place. `left` is the left edge of this node's subtree band.
+  let maxDepth = 0;
+  const place = (id: string, left: number, depth: number) => {
+    maxDepth = Math.max(maxDepth, depth);
+    const w = subtreeW.get(id)!;
+    const kids = children.get(id) ?? [];
+    const y = T_PAD + depth * (T_NODE_H + T_V_GAP);
+    let x: number;
+    if (kids.length === 0) {
+      x = left + (w - T_NODE_W) / 2;
+    } else {
+      let cursor = left;
+      for (const k of kids) {
+        place(k, cursor, depth + 1);
+        cursor += subtreeW.get(k)! + T_H_GAP;
+      }
+      const first = byId.get(kids[0])!;
+      const last = byId.get(kids[kids.length - 1])!;
+      const centre = (first.x + first.w / 2 + (last.x + last.w / 2)) / 2;
+      x = centre - T_NODE_W / 2;
+    }
+    byId.set(id, {
+      id,
+      x,
+      y,
+      w: T_NODE_W,
+      h: T_NODE_H,
+      depth,
+      container: kids.length > 0,
+      headerH: 0,
+    });
+  };
+
+  let cursor = T_PAD;
+  for (const r of roots) {
+    place(r, cursor, 0);
+    cursor += subtreeW.get(r)! + T_H_GAP;
   }
 
-  const maxLayer = ids.reduce((m, id) => Math.max(m, layer.get(id) ?? 0), 0);
-  const columns: string[][] = Array.from({ length: maxLayer + 1 }, () => []);
-  // Stable initial order (by id) keeps layout deterministic before sweeps.
-  for (const id of [...ids].sort()) columns[layer.get(id) ?? 0].push(id);
-  orderWithinLayers(columns, neighbours);
+  const nodes = [...byId.values()];
+  const hierEdges: HierEdge[] = [];
+  for (const [id, kids] of children) {
+    const p = byId.get(id);
+    if (!p) continue;
+    for (const k of kids) {
+      const c = byId.get(k);
+      if (c) hierEdges.push({ parent: id, child: k, d: hierPath(p, c) });
+    }
+  }
 
-  // Assign coordinates; vertically centre each column against the tallest one.
-  const colHeights = columns.map((col) => col.length * NODE_H + Math.max(0, col.length - 1) * ROW_GAP);
-  const maxColHeight = Math.max(0, ...colHeights);
-  const pos = new Map<string, LaidOutNode>();
-  columns.forEach((col, ci) => {
-    const x = PAD + ci * (NODE_W + COL_GAP);
-    const yStart = PAD + (maxColHeight - colHeights[ci]) / 2;
-    col.forEach((id, ri) => {
-      pos.set(id, { id, x, y: yStart + ri * (NODE_H + ROW_GAP), w: NODE_W, h: NODE_H });
+  const totalW = roots.reduce((s, r) => s + subtreeW.get(r)!, 0) + T_H_GAP * Math.max(0, roots.length - 1);
+  const width = T_PAD * 2 + Math.max(T_NODE_W, totalW);
+  const height = T_PAD * 2 + (maxDepth + 1) * T_NODE_H + maxDepth * T_V_GAP;
+  return { nodes, byId, hierEdges, connEdges: buildConnEdges(project, byId), width, height };
+}
+
+// --- nested layout ----------------------------------------------------------
+
+const N_LEAF_W = 236;
+const N_LEAF_H = 96;
+const N_HEADER_H = 42;
+const N_INNER_PAD = 14;
+const N_GAP = 13;
+const N_PAD = 16;
+
+interface Size {
+  w: number;
+  h: number;
+}
+
+/** Split children into rows of roughly √n per row for a balanced block. */
+function rowsOf(kids: string[]): string[][] {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(kids.length)));
+  const rows: string[][] = [];
+  for (let i = 0; i < kids.length; i += cols) rows.push(kids.slice(i, i + cols));
+  return rows;
+}
+
+export function layoutNested(project: Project, focusId = ""): StructureLayout {
+  const forest = componentForest(project);
+  const { children } = forest;
+  const roots = focusId && forest.children.has(focusId) ? [focusId] : forest.roots;
+  const byId = new Map<string, LaidOutNode>();
+  const size = new Map<string, Size>();
+
+  const measure = (id: string): Size => {
+    const kids = children.get(id) ?? [];
+    if (kids.length === 0) {
+      const s = { w: N_LEAF_W, h: N_LEAF_H };
+      size.set(id, s);
+      return s;
+    }
+    const rows = rowsOf(kids);
+    let innerW = 0;
+    let innerH = 0;
+    rows.forEach((row, ri) => {
+      let rowW = 0;
+      let rowH = 0;
+      row.forEach((k, ci) => {
+        const ks = measure(k);
+        rowW += ks.w + (ci > 0 ? N_GAP : 0);
+        rowH = Math.max(rowH, ks.h);
+      });
+      innerW = Math.max(innerW, rowW);
+      innerH += rowH + (ri > 0 ? N_GAP : 0);
     });
-  });
+    const s = {
+      w: innerW + N_INNER_PAD * 2,
+      h: N_HEADER_H + innerH + N_INNER_PAD * 2,
+    };
+    size.set(id, s);
+    return s;
+  };
+  for (const r of roots) measure(r);
 
-  const nodes = ids.map((id) => pos.get(id)!);
-  const edges: LaidOutEdge[] = undirected.map((e) => ({
-    a: e.a,
-    b: e.b,
-    flows: e.flows,
-    d: edgePath(pos.get(e.a)!, pos.get(e.b)!),
-  }));
+  const place = (id: string, x: number, y: number, depth: number) => {
+    const s = size.get(id)!;
+    const kids = children.get(id) ?? [];
+    byId.set(id, {
+      id,
+      x,
+      y,
+      w: s.w,
+      h: s.h,
+      depth,
+      container: kids.length > 0,
+      headerH: kids.length > 0 ? N_HEADER_H : 0,
+    });
+    if (kids.length === 0) return;
+    const rows = rowsOf(kids);
+    let cursorY = y + N_HEADER_H + N_INNER_PAD;
+    for (const row of rows) {
+      let cursorX = x + N_INNER_PAD;
+      let rowH = 0;
+      for (const k of row) {
+        const ks = size.get(k)!;
+        place(k, cursorX, cursorY, depth + 1);
+        cursorX += ks.w + N_GAP;
+        rowH = Math.max(rowH, ks.h);
+      }
+      cursorY += rowH + N_GAP;
+    }
+  };
 
-  const width = PAD * 2 + (maxLayer + 1) * NODE_W + maxLayer * COL_GAP;
-  const height = PAD * 2 + maxColHeight;
-  return { nodes, edges, width, height };
+  let cursorX = N_PAD;
+  let maxH = 0;
+  for (const r of roots) {
+    place(r, cursorX, N_PAD, 0);
+    const s = size.get(r)!;
+    cursorX += s.w + N_GAP;
+    maxH = Math.max(maxH, s.h);
+  }
+
+  const nodes = [...byId.values()];
+  const width = cursorX - N_GAP + N_PAD;
+  const height = N_PAD * 2 + maxH;
+  return {
+    nodes,
+    byId,
+    hierEdges: [],
+    connEdges: buildConnEdges(project, byId),
+    width: Math.max(N_PAD * 2 + N_LEAF_W, width),
+    height,
+  };
 }
