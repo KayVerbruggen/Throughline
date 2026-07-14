@@ -27,6 +27,49 @@ export interface Selection {
   id: string;
 }
 
+// --- persisted per-view display preferences ---------------------------------
+
+export type StructureLayoutMode = "tree" | "nested";
+export type StructureShowMode = "hierarchy" | "connections" | "both";
+export type TraceColumnKind = "need" | "use-case" | "requirement" | "test";
+
+/**
+ * Display choices made in a view's toolbar (structure layout, traceability
+ * filters). These are preferences, not project data, so they live in
+ * localStorage like the theme rather than in the project files — they should
+ * survive navigating away, reloading, and reopening the window.
+ */
+export interface ViewPrefs {
+  structureLayout: StructureLayoutMode;
+  structureShow: StructureShowMode;
+  /** Which traceability columns are shown, in spine order. */
+  traceColumns: TraceColumnKind[];
+  /** Stakeholder id scoping the traceability grid, or null for all. */
+  traceStakeholder: string | null;
+}
+
+const PREFS_KEY = "throughline.viewPrefs";
+
+const DEFAULT_PREFS: ViewPrefs = {
+  structureLayout: "tree",
+  structureShow: "both",
+  traceColumns: ["need", "use-case", "requirement", "test"],
+  traceStakeholder: null,
+};
+
+function loadPrefs(): ViewPrefs {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(PREFS_KEY) : null;
+    if (!raw) return DEFAULT_PREFS;
+    const parsed = JSON.parse(raw) as Partial<ViewPrefs>;
+    // Merge over defaults so a preference added in a later version still gets a
+    // sane value when reading an older, partial blob.
+    return { ...DEFAULT_PREFS, ...parsed };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
+
 interface AppState {
   storage: StorageAdapter;
   project: Project;
@@ -38,6 +81,8 @@ interface AppState {
   /** Breadcrumb of selections navigated through inside the detail panel. */
   history: Selection[];
   theme: "light" | "dark";
+  /** Persisted per-view display preferences (structure layout, trace filters). */
+  prefs: ViewPrefs;
 
   init: () => Promise<void>;
   reload: () => Promise<void>;
@@ -54,6 +99,8 @@ interface AppState {
   closeDetail: () => void;
   toggleTheme: () => void;
   syncSystemTheme: () => void;
+  /** Merge a patch into the persisted view preferences and write it through. */
+  setPrefs: (patch: Partial<ViewPrefs>) => void;
 
   createArtifact: (kind: ArtifactKind) => Promise<void>;
   /**
@@ -318,6 +365,7 @@ export const useStore = create<AppState>((set, get) => {
     selection: null,
     history: [],
     theme: initialTheme(),
+    prefs: loadPrefs(),
 
     init: async () => {
       const { storage } = get();
@@ -381,6 +429,16 @@ export const useStore = create<AppState>((set, get) => {
       const saved = localStorage.getItem(THEME_KEY);
       if (saved === "light" || saved === "dark") return;
       set({ theme: systemPrefersDark() ? "dark" : "light" });
+    },
+
+    setPrefs: (patch) => {
+      const prefs = { ...get().prefs, ...patch };
+      try {
+        localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+      } catch {
+        // Ignore storage failures (private mode, quota) — prefs stay in-memory.
+      }
+      set({ prefs });
     },
 
     createArtifact: async (kind) => {

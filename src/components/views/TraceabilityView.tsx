@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { composeEars } from "../../model/ears";
 import { chainOf, needWarning, requirementWarning, testWarning } from "../../model/trace";
@@ -91,14 +91,25 @@ function stakeholderScope(project: Project, stakeholderId: string | null): Set<s
 export function TraceabilityView() {
   const project = useStore((s) => s.project);
   const select = useStore((s) => s.select);
+  const setPrefs = useStore((s) => s.setPrefs);
   const [hover, setHover] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
-  const [stakeholderId, setStakeholderId] = useState<string | null>(null);
+
+  // Stakeholder scope and visible columns are persisted preferences (see
+  // ViewPrefs in the store) so they survive navigation and window reopens.
+  const traceStakeholder = useStore((s) => s.prefs.traceStakeholder);
+  // Drop a persisted stakeholder that no longer exists rather than scoping the
+  // grid to a deleted id (which would hide every card).
+  const stakeholderId =
+    traceStakeholder != null && project.stakeholders.some((s) => s.id === traceStakeholder)
+      ? traceStakeholder
+      : null;
+  const setStakeholderId = (id: string | null) => setPrefs({ traceStakeholder: id });
+
   // Which element types appear as columns. All on by default; toggling one off
   // drops its whole column (and its edges, which measure() skips automatically).
-  const [visibleKinds, setVisibleKinds] = useState<Set<ColumnKind>>(
-    () => new Set(COLUMN_KINDS),
-  );
+  const traceColumns = useStore((s) => s.prefs.traceColumns);
+  const visibleKinds = useMemo(() => new Set(traceColumns), [traceColumns]);
   const [paths, setPaths] = useState<EdgePath[]>([]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -166,16 +177,15 @@ export function TraceabilityView() {
 
   const shownColumns = COLUMN_KINDS.filter((k) => visibleKinds.has(k));
   const toggleKind = (k: ColumnKind) => {
-    setVisibleKinds((prev) => {
-      const next = new Set(prev);
-      // Keep at least one column visible so the grid never collapses to nothing.
-      if (next.has(k)) {
-        if (next.size > 1) next.delete(k);
-      } else {
-        next.add(k);
-      }
-      return next;
-    });
+    const next = new Set(visibleKinds);
+    // Keep at least one column visible so the grid never collapses to nothing.
+    if (next.has(k)) {
+      if (next.size > 1) next.delete(k);
+    } else {
+      next.add(k);
+    }
+    // Persist in spine order so the stored value is stable across toggles.
+    setPrefs({ traceColumns: COLUMN_KINDS.filter((c) => next.has(c)) });
     setFocusId(null);
   };
 

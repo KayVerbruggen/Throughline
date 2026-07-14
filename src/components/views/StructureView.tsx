@@ -2,7 +2,11 @@ import { useMemo, useState } from "react";
 
 import { ancestorChain } from "../../model/hierarchy";
 import { layoutNested, layoutTree, type LaidOutNode, type StructureLayout } from "../../model/layout";
-import { useStore } from "../../state/store";
+import {
+  useStore,
+  type StructureLayoutMode as LayoutMode,
+  type StructureShowMode as ShowMode,
+} from "../../state/store";
 import type { Component } from "../../types";
 import { Icon } from "../icons";
 
@@ -13,18 +17,20 @@ function hueOf(id: string): number {
   return h;
 }
 
-type LayoutMode = "tree" | "nested";
-/** What relationships to draw. In nested mode containment always shows the
- *  hierarchy, so "hierarchy" simply hides connection arcs. */
-type ShowMode = "hierarchy" | "connections" | "both";
+// Layout mode ("tree" | "nested") and show mode (which relationships to draw;
+// in nested mode containment always shows the hierarchy, so "hierarchy" simply
+// hides connection arcs) are persisted preferences — see ViewPrefs in the store.
 
 export function StructureView() {
   const project = useStore((s) => s.project);
   const select = useStore((s) => s.select);
   const addComponent = useStore((s) => s.addComponent);
+  const mode = useStore((s) => s.prefs.structureLayout);
+  const show = useStore((s) => s.prefs.structureShow);
+  const setPrefs = useStore((s) => s.setPrefs);
+  const setMode = (structureLayout: LayoutMode) => setPrefs({ structureLayout });
+  const setShow = (structureShow: ShowMode) => setPrefs({ structureShow });
   const [hover, setHover] = useState<string | null>(null);
-  const [mode, setMode] = useState<LayoutMode>("tree");
-  const [show, setShow] = useState<ShowMode>("both");
   // Drill-down root: "" = whole project, else show only this component + subtree.
   const [focus, setFocus] = useState<string>("");
 
