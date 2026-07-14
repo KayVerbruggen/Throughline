@@ -20,5 +20,8 @@ Adding a new artifact kind touches all of these layers: `types.ts`, `model/ids.t
 ## Self-modelling reference
 `docs/` is a Throughline project that models Throughline itself (see `docs/README.md`). Before a non-trivial data-model change, check whether it's the kind of friction already logged in `TODO.md`'s "Data-model friction" section or `docs/REVERSE-ENGINEERING-GUIDE.md` — those capture real pain points hit while building this tool.
 
+## Browser-preview verification
+The Browser pane's `screenshot` action reliably times out in this environment — don't use it. Verify observable UI changes with the text-based tools instead (`read_page`, `javascript_tool` to inspect DOM/computed styles/localStorage, `read_console_messages`).
+
 ## Git noise
 `core.autocrlf=true` is set, so every `git add`/`commit` prints `LF will be replaced by CRLF` warnings for every file. This is expected and harmless — not a sign of a problem.
