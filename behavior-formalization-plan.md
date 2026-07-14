@@ -344,6 +344,37 @@ make export a later, mechanical addition.
 
 ---
 
+## Stage 4 — Sequence diagram (shipped 2026-07-15)
+
+The most natural derived view of a flow, and it needs **no effects** — only the
+data the model already has: the ordered activities and the component that
+performs each. Built as `model/sequenceDiagram.ts` (`deriveSequenceDiagram`,
+unit-tested) rendered in the Behaviour view's right pane via an
+Activity/Sequence toggle (`behaviorDiagram` pref).
+
+- **Lifelines** = the use case's actors (leftmost) + the flow's components, in
+  first-appearance order. Actors resolve to **stakeholders** by id or title
+  (`model/actors.ts`), tolerant of legacy free-text — so human lifelines are
+  traceable to `SH-*` artifacts where they match, and plain names still work.
+- **Messages** = hand-offs: control moving from an activity owned by A to the
+  next owned by B is a message `A → B` labelled with the receiving activity;
+  same-owner steps are self-calls. The primary actor initiates the first message.
+- **Actor attribution** — the piece the model was missing: a new optional
+  `Activity.initiator` (a stakeholder actor or a component, round-trips through
+  serialize, editable from the ƒ panel's "initiated by" select) overrides the
+  sender, so a flow can have multiple actor touchpoints ("the engineer opens the
+  folder" → `System Engineer → App`). Default sender is the previous step's owner.
+- **Alternates** → `alt` combined fragments (a `loop` when they rejoin backward),
+  labelled with the guard/condition.
+
+Reuses the same adjacency intuition as the Structure view (`activityAdjacencies`)
+— the sequence diagram is that component graph unrolled along time, per flow.
+Remaining refinements: a first-class actor **picker** on the use case editor
+(currently `UseCase.actors` is still free-text, resolved opportunistically), and
+per-message reassignment directly on the diagram. Export deferred like the others.
+
+---
+
 ## Sequencing & risk
 
 - Stages 0→1→2 are strictly additive to the schema; every new field is optional,
