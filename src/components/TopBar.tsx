@@ -10,6 +10,9 @@ const TITLES: Record<ViewId, string> = {
   requirements: "Requirements",
   structure: "System Structure",
   behavior: "System Behavior",
+  decisions: "Design Decisions",
+  glossary: "Glossary",
+  tests: "Tests",
   traceability: "Traceability",
 };
 
@@ -19,6 +22,9 @@ const NEW_LABEL: Partial<Record<ViewId, string>> = {
   "use-cases": "New Use Case",
   requirements: "New Requirement",
   structure: "New Component",
+  decisions: "New Decision",
+  glossary: "New Term",
+  tests: "New Test",
 };
 
 export function TopBar() {
@@ -44,7 +50,13 @@ export function TopBar() {
             ? project.requirements.length
             : view === "structure"
               ? project.components.length
-              : null;
+              : view === "decisions"
+                ? project.decisions.length
+                : view === "glossary"
+                  ? project.glossary.length
+                  : view === "tests"
+                    ? project.tests.length
+                    : null;
 
   const newLabel = NEW_LABEL[view];
 
@@ -54,6 +66,9 @@ export function TopBar() {
     else if (view === "use-cases") createArtifact("use-case");
     else if (view === "requirements") createArtifact("requirement");
     else if (view === "structure") createArtifact("component");
+    else if (view === "decisions") createArtifact("decision");
+    else if (view === "glossary") createArtifact("glossary");
+    else if (view === "tests") createArtifact("test");
   };
 
   return (

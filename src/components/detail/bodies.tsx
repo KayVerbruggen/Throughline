@@ -1,7 +1,10 @@
 import { useMemo, useState, type ReactNode } from "react";
 
+import { composeDecision, componentsForDecision } from "../../model/decision";
 import { composeEars, EARS_META } from "../../model/ears";
-import { nextStoryId } from "../../model/ids";
+import { componentHandle } from "../../model/expr";
+import { descendantIds } from "../../model/hierarchy";
+import { nextStoryId, nextVariableId } from "../../model/ids";
 import { collectRoles, collectSubjects } from "../../model/vocab";
 import { useStore } from "../../state/store";
 import {
@@ -12,20 +15,30 @@ import {
   useCasesForComponent,
 } from "../../model/behavior";
 import {
+  DECISION_STATUSES,
   EARS_PATTERNS,
   STAKEHOLDER_TYPES,
   type Component,
+  type Decision,
+  type DecisionStatus,
   type EarsPattern,
   type Flow,
   type Need,
   type Requirement,
   type Stakeholder,
   type StakeholderType,
+  TEST_RESULTS,
+  type Term,
+  type Test,
+  type TestResult,
   type UseCase,
   type UserStory,
+  type VarType,
+  type Variable,
 } from "../../types";
-import { EARS_LABEL } from "../badges";
+import { DecisionStatusBadge, EARS_LABEL } from "../badges";
 import { Icon, type IconName } from "../icons";
+import { useConfirm } from "../useConfirm";
 import { Combobox, FieldLabel, Section, Select, TextArea, TextInput } from "./fields";
 
 type Update<T> = (patch: Partial<T>) => void;
@@ -131,16 +144,15 @@ export function UseCaseBody({
   return (
     <>
       <Section>
-        <FieldLabel>Traces to</FieldLabel>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {uc.trace.length === 0 ? (
-            <Muted>Covers no need yet.</Muted>
-          ) : (
-            uc.trace.map((id) => (
-              <Chip key={id} id={id} icon="need" onClick={() => onOpenNeed(id)} />
-            ))
-          )}
-        </div>
+        <FieldLabel hint="(the needs this covers)">Traces to</FieldLabel>
+        <TraceEditor
+          trace={uc.trace}
+          candidates={project.needs}
+          icon="need"
+          emptyLabel="Covers no need yet."
+          onOpen={onOpenNeed}
+          onChange={(trace) => update({ trace })}
+        />
       </Section>
 
       <Section>
@@ -293,19 +305,22 @@ export function RequirementBody({
       </div>
 
       <Section mb={0}>
-        <FieldLabel>Traces to</FieldLabel>
-        {!orphan ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {req.trace.map((id) => (
-              <Chip key={id} id={id} icon="use-case" onClick={() => onOpenUseCase(id)} />
-            ))}
-          </div>
-        ) : (
+        <FieldLabel hint="(the use cases this refines)">Traces to</FieldLabel>
+        <TraceEditor
+          trace={req.trace}
+          candidates={project.useCases}
+          icon="use-case"
+          emptyLabel="Not linked to any use case yet."
+          onOpen={onOpenUseCase}
+          onChange={(trace) => update({ trace })}
+        />
+        {orphan ? (
           <div
             style={{
               display: "flex",
               alignItems: "center",
               gap: 8,
+              marginTop: 10,
               padding: "10px 12px",
               border: "1px solid var(--warn-border)",
               background: "var(--warn-bg)",
@@ -319,7 +334,7 @@ export function RequirementBody({
             </span>
             Not linked to any use case. Trace this requirement to keep the chain intact.
           </div>
-        )}
+        ) : null}
       </Section>
     </>
   );
@@ -334,21 +349,67 @@ export function ComponentBody({
   update,
   onOpenUseCase,
   onOpenRequirement,
+  onOpenDecision,
 }: {
   component: Component;
   update: Update<Component>;
   onOpenUseCase: (id: string) => void;
   onOpenRequirement: (id: string) => void;
+  onOpenDecision: (id: string) => void;
 }) {
   const project = useStore((s) => s.project);
   const ucs = useMemo(() => useCasesForComponent(project, component), [project, component]);
   const reqs = useMemo(() => requirementsForComponent(project, component), [project, component]);
 
+  // A component may be nested under any other, except itself or one of its own
+  // descendants (which would form a cycle in the hierarchy).
+  const parentOptions = useMemo(() => {
+    const banned = descendantIds(project, component.id);
+    banned.add(component.id);
+    return [
+      { value: "", label: "— Top-level —" },
+      ...project.components
+        .filter((c) => !banned.has(c.id))
+        .map((c) => ({ value: c.id, label: `${c.id} · ${c.title}` })),
+    ];
+  }, [project, component.id]);
+
   return (
     <>
       <Section mb={22}>
+        <FieldLabel hint="(its place in the hierarchy)">Part of</FieldLabel>
+        <Select<string>
+          value={component.parent}
+          onChange={(v) => update({ parent: v })}
+          options={parentOptions}
+        />
+      </Section>
+
+      <Section mb={22}>
         <FieldLabel hint="(optional)">Description</FieldLabel>
         <TextArea value={component.description} rows={4} onChange={(v) => update({ description: v })} />
+      </Section>
+
+      <Section mb={22}>
+        <FieldLabel hint="(the rationale behind it)">Shaped by decisions</FieldLabel>
+        <TraceEditor
+          trace={component.decisions}
+          candidates={project.decisions}
+          icon="decision"
+          emptyLabel="No design decisions linked yet."
+          onOpen={onOpenDecision}
+          onChange={(decisions) => update({ decisions })}
+        />
+      </Section>
+
+      <Section mb={22}>
+        <FieldLabel hint="(typed state for behaviour guards)">State variables</FieldLabel>
+        <VariablesEditor
+          variables={component.variables}
+          handle={componentHandle(component.title) || component.id}
+          newId={() => nextVariableId(project)}
+          onChange={(variables) => update({ variables })}
+        />
       </Section>
 
       <Section mb={22}>
@@ -515,6 +576,17 @@ export function FlowBody({ flow, onOpenUseCase }: { flow: Flow; onOpenUseCase: (
                   {alt.steps.length === 1 ? "" : "s"}
                   {alt.rejoin >= 0 ? `, rejoins at step ${alt.rejoin + 1}` : ", ends the flow"}
                 </div>
+                {alt.guard ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      font: "400 11.5px 'IBM Plex Mono'",
+                      color: "oklch(0.52 0.11 62)",
+                    }}
+                  >
+                    ƒ {alt.guard}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -536,6 +608,262 @@ export function FlowBody({ flow, onOpenUseCase }: { flow: Flow; onOpenUseCase: (
         >
           Edit in System Behavior →
         </button>
+      </Section>
+    </>
+  );
+}
+
+// ===========================================================================
+// Decision — structured "Y-statement" builder
+// ===========================================================================
+
+const DECISION_STATUS_LABEL: Record<DecisionStatus, string> = {
+  proposed: "Proposed",
+  accepted: "Accepted",
+  superseded: "Superseded",
+};
+
+// Connective words emphasised in the live statement preview so the fixed
+// template reads clearly against the authored slots.
+const DECISION_KEYWORDS = new Set(["facing", "decided", "not", "achieve", "accepting"]);
+
+export function DecisionBody({
+  decision,
+  update,
+  onOpenUseCase,
+  onOpenComponent,
+}: {
+  decision: Decision;
+  update: Update<Decision>;
+  onOpenUseCase: (id: string) => void;
+  onOpenComponent: (id: string) => void;
+}) {
+  const project = useStore((s) => s.project);
+  const citedBy = useMemo(
+    () => componentsForDecision(project, decision.id),
+    [project, decision.id],
+  );
+
+  return (
+    <>
+      <Section mb={16}>
+        <FieldLabel>Status</FieldLabel>
+        <Select<DecisionStatus>
+          value={decision.status}
+          onChange={(v) => update({ status: v })}
+          options={DECISION_STATUSES.map((s) => ({ value: s, label: DECISION_STATUS_LABEL[s] }))}
+        />
+      </Section>
+
+      {/* live preview of the generated statement */}
+      <div style={{ background: "var(--code-bg)", borderRadius: 11, padding: "17px 18px", marginBottom: 18 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 10,
+          }}
+        >
+          <span
+            style={{
+              font: "500 9.5px 'IBM Plex Mono'",
+              letterSpacing: ".12em",
+              textTransform: "uppercase",
+              color: "oklch(0.72 0.07 258)",
+            }}
+          >
+            Decision record
+          </span>
+          <DecisionStatusBadge status={decision.status} />
+        </div>
+        <div style={{ font: "400 15.5px/1.6 'IBM Plex Mono'", textWrap: "pretty" }}>
+          {composeDecision(decision)
+            .split(/(\s+)/)
+            .map((t, i) => (
+              <span
+                key={i}
+                style={
+                  DECISION_KEYWORDS.has(t.replace(/[.,;:]/g, "").toLowerCase())
+                    ? { color: "oklch(0.83 0.13 88)", fontWeight: 500 }
+                    : { color: "#e9e9e6" }
+                }
+              >
+                {t}
+              </span>
+            ))}
+        </div>
+      </div>
+
+      <Section>
+        <FieldLabel hint="(In the … — the situation)">Context</FieldLabel>
+        <TextArea
+          value={decision.context}
+          rows={2}
+          onChange={(v) => update({ context: v })}
+        />
+      </Section>
+
+      <Section>
+        <FieldLabel hint="(facing … — the problem or force)">Concern</FieldLabel>
+        <TextArea value={decision.concern} rows={2} onChange={(v) => update({ concern: v })} />
+      </Section>
+
+      <Section>
+        <FieldLabel hint="(we decided … — the choice)">Decision</FieldLabel>
+        <TextArea value={decision.decision} rows={2} onChange={(v) => update({ decision: v })} />
+      </Section>
+
+      <Section>
+        <FieldLabel hint="(and not … — rejected options, optional)">Alternatives</FieldLabel>
+        <TextArea
+          value={decision.alternatives}
+          rows={2}
+          onChange={(v) => update({ alternatives: v })}
+        />
+      </Section>
+
+      <Section>
+        <FieldLabel hint="(to achieve … — the goal)">Criterion</FieldLabel>
+        <TextArea value={decision.criterion} rows={2} onChange={(v) => update({ criterion: v })} />
+      </Section>
+
+      <Section mb={22}>
+        <FieldLabel hint="(accepting … — the downside, optional)">Trade-off</FieldLabel>
+        <TextArea value={decision.downside} rows={2} onChange={(v) => update({ downside: v })} />
+      </Section>
+
+      <Section mb={22}>
+        <FieldLabel hint="(the use cases this addresses)">Addresses</FieldLabel>
+        <TraceEditor
+          trace={decision.trace}
+          candidates={project.useCases}
+          icon="use-case"
+          emptyLabel="Not linked to any use case yet."
+          onOpen={onOpenUseCase}
+          onChange={(trace) => update({ trace })}
+        />
+      </Section>
+
+      <Section mb={0}>
+        <FieldLabel hint="(components that link to this decision)">Shapes</FieldLabel>
+        {citedBy.length === 0 ? (
+          <Muted>No component links to this decision yet.</Muted>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {citedBy.map((c) => (
+              <Chip key={c.id} id={c.id} icon="structure" onClick={() => onOpenComponent(c.id)} />
+            ))}
+          </div>
+        )}
+      </Section>
+    </>
+  );
+}
+
+// ===========================================================================
+// Glossary term
+// ===========================================================================
+
+export function GlossaryBody({ term, update }: { term: Term; update: Update<Term> }) {
+  return (
+    <>
+      <Section mb={22}>
+        <FieldLabel hint="(comma separated synonyms / abbreviations)">Also known as</FieldLabel>
+        <TextInput
+          mono
+          value={term.aliases.join(", ")}
+          placeholder="e.g. connection, edge"
+          onChange={(v) => update({ aliases: splitList(v) })}
+        />
+      </Section>
+      <Section mb={0}>
+        <FieldLabel>Definition</FieldLabel>
+        <TextArea value={term.definition} rows={7} onChange={(v) => update({ definition: v })} />
+      </Section>
+    </>
+  );
+}
+
+// ===========================================================================
+// Test — verifies a requirement
+// ===========================================================================
+
+const TEST_RESULT_LABEL: Record<TestResult, string> = {
+  pass: "Passing",
+  fail: "Failing",
+  unknown: "Not run",
+};
+
+export function TestBody({
+  test,
+  update,
+  onOpenRequirement,
+}: {
+  test: Test;
+  update: Update<Test>;
+  onOpenRequirement: (id: string) => void;
+}) {
+  const project = useStore((s) => s.project);
+  const orphan = test.trace.length === 0;
+
+  return (
+    <>
+      <Section mb={16}>
+        <FieldLabel hint="(the last recorded outcome)">Result</FieldLabel>
+        <Select<TestResult>
+          value={test.result}
+          onChange={(v) => update({ result: v })}
+          options={TEST_RESULTS.map((r) => ({ value: r, label: TEST_RESULT_LABEL[r] }))}
+        />
+      </Section>
+
+      <Section mb={22}>
+        <FieldLabel hint="(path to the test in the repo)">File</FieldLabel>
+        <TextInput
+          mono
+          value={test.file}
+          placeholder="src/model/trace.test.ts"
+          onChange={(v) => update({ file: v })}
+        />
+      </Section>
+
+      <Section mb={22}>
+        <FieldLabel hint="(what it checks)">Description</FieldLabel>
+        <TextArea value={test.body} rows={4} onChange={(v) => update({ body: v })} />
+      </Section>
+
+      <Section mb={0}>
+        <FieldLabel hint="(the requirements this verifies)">Traces to</FieldLabel>
+        <TraceEditor
+          trace={test.trace}
+          candidates={project.requirements}
+          icon="requirement"
+          emptyLabel="Verifies no requirement yet."
+          onOpen={onOpenRequirement}
+          onChange={(trace) => update({ trace })}
+        />
+        {orphan ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginTop: 10,
+              padding: "10px 12px",
+              border: "1px solid var(--warn-border)",
+              background: "var(--warn-bg)",
+              borderRadius: 9,
+              font: "400 12.5px/1.5 'IBM Plex Sans'",
+              color: "var(--warn-ink)",
+            }}
+          >
+            <span style={{ display: "flex" }}>
+              <Icon name="warn" size={15} color="var(--warn-ink)" />
+            </span>
+            Not linked to any requirement. Trace this test so it verifies something.
+          </div>
+        ) : null}
       </Section>
     </>
   );
@@ -775,6 +1103,130 @@ function StoryEditor({
 }
 
 // ===========================================================================
+// Component state variables
+// ===========================================================================
+
+const VAR_TYPE_OPTIONS: { value: VarType["kind"]; label: string }[] = [
+  { value: "bool", label: "Boolean" },
+  { value: "int", label: "Integer" },
+  { value: "enum", label: "Enum" },
+];
+
+function VariablesEditor({
+  variables,
+  handle,
+  newId,
+  onChange,
+}: {
+  variables: Variable[];
+  handle: string;
+  newId: () => string;
+  onChange: (v: Variable[]) => void;
+}) {
+  const set = (i: number, patch: Partial<Variable>) =>
+    onChange(variables.map((v, j) => (j === i ? { ...v, ...patch } : v)));
+
+  const setKind = (i: number, kind: VarType["kind"]) => {
+    const type: VarType =
+      kind === "int" ? { kind: "int" } : kind === "enum" ? { kind: "enum", values: [] } : { kind: "bool" };
+    set(i, { type });
+  };
+
+  const add = () =>
+    onChange([...variables, { id: newId(), name: "", type: { kind: "bool" } }]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {variables.length === 0 && (
+        <Muted>No state yet. Add a variable (e.g. vesselCount) to write guards over it.</Muted>
+      )}
+      {variables.map((v, i) => (
+        <div
+          key={v.id}
+          style={{
+            border: "1px solid rgba(var(--line),.09)",
+            borderRadius: 9,
+            padding: "11px 12px",
+            background: "var(--surface2)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <TextInput
+                mono
+                value={v.name}
+                placeholder="variableName"
+                onChange={(name) => set(i, { name })}
+              />
+            </div>
+            <div style={{ width: 118, flex: "none" }}>
+              <Select<VarType["kind"]>
+                value={v.type.kind}
+                onChange={(k) => setKind(i, k)}
+                options={VAR_TYPE_OPTIONS}
+              />
+            </div>
+            <RemoveButton onClick={() => onChange(variables.filter((_, j) => j !== i))} />
+          </div>
+
+          {v.type.kind === "enum" && (
+            <TextInput
+              mono
+              value={v.type.values.join(", ")}
+              placeholder="values, e.g. open, closed"
+              onChange={(raw) =>
+                set(i, { type: { kind: "enum", values: splitList(raw) } })
+              }
+            />
+          )}
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span
+              style={{
+                font: "500 9.5px 'IBM Plex Mono'",
+                letterSpacing: ".06em",
+                textTransform: "uppercase",
+                color: "var(--ter)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Initial
+            </span>
+            <div style={{ width: 130 }}>
+              <TextInput
+                mono
+                value={v.initial ?? ""}
+                placeholder={initialPlaceholder(v.type)}
+                onChange={(raw) => set(i, { initial: raw.trim() ? raw.trim() : undefined })}
+              />
+            </div>
+            <div style={{ flex: 1 }} />
+            <span
+              style={{ font: "400 11px 'IBM Plex Mono'", color: "var(--faint)" }}
+              title="Reference this variable in a guard using this handle"
+            >
+              {handle}.{v.name || "…"}
+            </span>
+          </div>
+        </div>
+      ))}
+      <AddButton onClick={add} inline>
+        + Add variable
+      </AddButton>
+    </div>
+  );
+}
+
+function initialPlaceholder(t: VarType): string {
+  if (t.kind === "bool") return "true / false";
+  if (t.kind === "int") return "0";
+  return t.values[0] ?? "value";
+}
+
+// ===========================================================================
 // small shared bits
 // ===========================================================================
 
@@ -801,10 +1253,19 @@ function Muted({ children }: { children: string }) {
   return <span style={{ font: "400 12.5px 'IBM Plex Sans'", color: "var(--faint)" }}>{children}</span>;
 }
 
-function Chip({ id, icon, onClick }: { id: string; icon: IconName; onClick: () => void }) {
+function Chip({
+  id,
+  icon,
+  onClick,
+  onRemove,
+}: {
+  id: string;
+  icon: IconName;
+  onClick: () => void;
+  onRemove?: () => void;
+}) {
   return (
     <span
-      onClick={onClick}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -812,16 +1273,106 @@ function Chip({ id, icon, onClick }: { id: string; icon: IconName; onClick: () =
         font: "500 11.5px 'IBM Plex Mono'",
         color: "var(--accent-ink)",
         background: "var(--accent-bg)",
-        padding: "4px 9px",
+        padding: onRemove ? "4px 5px 4px 9px" : "4px 9px",
         borderRadius: 6,
-        cursor: "pointer",
       }}
     >
-      <span style={{ display: "flex" }}>
-        <Icon name={icon} size={12} color="var(--accent-ink)" />
+      <span
+        onClick={onClick}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+      >
+        <span style={{ display: "flex" }}>
+          <Icon name={icon} size={12} color="var(--accent-ink)" />
+        </span>
+        {id}
       </span>
-      {id}
+      {onRemove ? <ChipRemoveButton onClick={onRemove} /> : null}
     </span>
+  );
+}
+
+function ChipRemoveButton({ onClick }: { onClick: () => void }) {
+  const [hover, setHover] = useState(false);
+  const { armed, trigger } = useConfirm(onClick);
+  return (
+    <button
+      onClick={trigger}
+      title={armed ? "Click again to remove trace" : "Remove trace"}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        flex: "none",
+        width: 16,
+        height: 16,
+        border: "none",
+        borderRadius: 4,
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: armed ? "oklch(0.55 0.18 25)" : hover ? "oklch(0.5 0.16 25 / .15)" : "transparent",
+        color: armed ? "#fff" : "var(--accent-ink)",
+      }}
+    >
+      <Icon name={armed ? "check" : "close"} size={11} color={armed ? "#fff" : "var(--accent-ink)"} />
+    </button>
+  );
+}
+
+/**
+ * Edits a forward trace: shows the linked parents as removable chips and offers
+ * a picker to add another from the available candidates of the parent kind.
+ */
+function TraceEditor({
+  trace,
+  candidates,
+  icon,
+  emptyLabel,
+  onOpen,
+  onChange,
+}: {
+  trace: string[];
+  candidates: { id: string; title: string }[];
+  icon: IconName;
+  emptyLabel: string;
+  onOpen: (id: string) => void;
+  onChange: (trace: string[]) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const available = candidates.filter((c) => !trace.includes(c.id));
+  const add = (id: string) => {
+    if (id && !trace.includes(id)) onChange([...trace, id]);
+    setAdding(false);
+  };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      {trace.length === 0 && !adding ? <Muted>{emptyLabel}</Muted> : null}
+      {trace.map((id) => (
+        <Chip
+          key={id}
+          id={id}
+          icon={icon}
+          onClick={() => onOpen(id)}
+          onRemove={() => onChange(trace.filter((t) => t !== id))}
+        />
+      ))}
+      {adding ? (
+        <div style={{ width: 240 }}>
+          <Select<string>
+            value=""
+            onChange={add}
+            options={[
+              { value: "", label: available.length ? "Select…" : "Nothing to add" },
+              ...available.map((c) => ({ value: c.id, label: `${c.id} · ${c.title}` })),
+            ]}
+          />
+        </div>
+      ) : (
+        <AddButton onClick={() => setAdding(true)} inline disabled={available.length === 0}>
+          + Add trace
+        </AddButton>
+      )}
+    </div>
   );
 }
 
@@ -859,10 +1410,11 @@ function AddButton({
 
 function RemoveButton({ onClick }: { onClick: () => void }) {
   const [hover, setHover] = useState(false);
+  const { armed, trigger } = useConfirm(onClick);
   return (
     <button
-      onClick={onClick}
-      title="Remove"
+      onClick={trigger}
+      title={armed ? "Click again to remove" : "Remove"}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -875,11 +1427,11 @@ function RemoveButton({ onClick }: { onClick: () => void }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: hover ? "oklch(0.95 0.05 25)" : "transparent",
-        color: hover ? "oklch(0.5 0.16 25)" : "var(--ter)",
+        background: armed ? "oklch(0.55 0.18 25)" : hover ? "oklch(0.95 0.05 25)" : "transparent",
+        color: armed ? "#fff" : hover ? "oklch(0.5 0.16 25)" : "var(--ter)",
       }}
     >
-      <Icon name="close" size={13} />
+      <Icon name={armed ? "check" : "close"} size={13} />
     </button>
   );
 }

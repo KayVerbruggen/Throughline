@@ -66,7 +66,7 @@ function NeedRow({ need }: { need: Need }) {
   return (
     <Row columns={COLS} onClick={() => select("need", need.id)}>
       <CellId id={need.id} warnMessage={warn?.message} />
-      <CellTitle title={need.title} />
+      <CellTitle title={need.title} inferred={need.inferred} />
       <div>
         <StatusBadge status={need.status} />
       </div>

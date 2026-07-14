@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { needWarning, requirementWarning, useCaseWarning } from "../../model/trace";
+import { needWarning, requirementWarning, testWarning, useCaseWarning } from "../../model/trace";
 import { useStore } from "../../state/store";
 import {
   MOSCOWS,
@@ -10,8 +10,19 @@ import {
   type Moscow,
   type Status,
 } from "../../types";
+import { InferredBadge } from "../badges";
 import { Icon, type IconName } from "../icons";
-import { ComponentBody, FlowBody, NeedBody, RequirementBody, StakeholderBody, UseCaseBody } from "./bodies";
+import {
+  ComponentBody,
+  DecisionBody,
+  FlowBody,
+  GlossaryBody,
+  NeedBody,
+  RequirementBody,
+  StakeholderBody,
+  TestBody,
+  UseCaseBody,
+} from "./bodies";
 import { Select } from "./fields";
 
 const TYPE_META: Record<ArtifactKind, { label: string; icon: IconName }> = {
@@ -21,6 +32,9 @@ const TYPE_META: Record<ArtifactKind, { label: string; icon: IconName }> = {
   requirement: { label: "Requirement", icon: "requirement" },
   component: { label: "Component", icon: "structure" },
   flow: { label: "Flow", icon: "behavior" },
+  decision: { label: "Decision", icon: "decision" },
+  glossary: { label: "Term", icon: "glossary" },
+  test: { label: "Test", icon: "test" },
 };
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -43,6 +57,8 @@ export function DetailPanel() {
   const updateSelected = useStore((s) => s.updateSelected);
   const deleteSelected = useStore((s) => s.deleteSelected);
   const select = useStore((s) => s.select);
+  const back = useStore((s) => s.back);
+  const canGoBack = useStore((s) => s.history.length > 0);
 
   if (!selection) return null;
 
@@ -57,7 +73,13 @@ export function DetailPanel() {
             ? project.requirements
             : selection.kind === "component"
               ? project.components
-              : project.flows;
+              : selection.kind === "flow"
+                ? project.flows
+                : selection.kind === "decision"
+                  ? project.decisions
+                  : selection.kind === "glossary"
+                    ? project.glossary
+                    : project.tests;
   const artifact = list.find((a) => a.id === selection.id);
   if (!artifact) return null;
 
@@ -69,7 +91,9 @@ export function DetailPanel() {
         ? useCaseWarning(artifact)
         : artifact.kind === "requirement"
           ? requirementWarning(artifact)
-          : null;
+          : artifact.kind === "test"
+            ? testWarning(artifact)
+            : null;
 
   const onDelete = () => {
     if (window.confirm(`Delete ${artifact.id} — “${artifact.title}”? This cannot be undone.`)) {
@@ -117,6 +141,9 @@ export function DetailPanel() {
             borderBottom: "1px solid rgba(var(--line),.08)",
           }}
         >
+          {canGoBack && (
+            <IconButton icon="back" title="Back" onClick={back} />
+          )}
           <span style={{ display: "flex", color: "var(--sub)" }}>
             <Icon name={meta.icon} size={16} />
           </span>
@@ -149,6 +176,7 @@ export function DetailPanel() {
               {warn.message}
             </span>
           ) : null}
+          {artifact.inferred ? <InferredBadge /> : null}
           <div style={{ flex: 1 }} />
           <IconButton icon="trash" title="Delete" danger onClick={onDelete} />
           <IconButton icon="close" title="Close" onClick={closeDetail} />
@@ -159,6 +187,13 @@ export function DetailPanel() {
           <TitleInput
             value={artifact.title}
             onChange={(v) => updateSelected({ title: v } as Partial<Artifact>)}
+          />
+
+          <InferredToggle
+            inferred={!!artifact.inferred}
+            onToggle={() =>
+              updateSelected({ inferred: !artifact.inferred } as Partial<Artifact>)
+            }
           />
 
           {/* Only the prioritised spine artifacts carry status/priority.
@@ -218,10 +253,32 @@ export function DetailPanel() {
               update={(patch) => updateSelected(patch as Partial<Artifact>)}
               onOpenUseCase={(id) => select("use-case", id)}
               onOpenRequirement={(id) => select("requirement", id)}
+              onOpenDecision={(id) => select("decision", id)}
             />
           )}
           {artifact.kind === "flow" && (
             <FlowBody flow={artifact} onOpenUseCase={(id) => select("use-case", id)} />
+          )}
+          {artifact.kind === "decision" && (
+            <DecisionBody
+              decision={artifact}
+              update={(patch) => updateSelected(patch as Partial<Artifact>)}
+              onOpenUseCase={(id) => select("use-case", id)}
+              onOpenComponent={(id) => select("component", id)}
+            />
+          )}
+          {artifact.kind === "glossary" && (
+            <GlossaryBody
+              term={artifact}
+              update={(patch) => updateSelected(patch as Partial<Artifact>)}
+            />
+          )}
+          {artifact.kind === "test" && (
+            <TestBody
+              test={artifact}
+              update={(patch) => updateSelected(patch as Partial<Artifact>)}
+              onOpenRequirement={(id) => select("requirement", id)}
+            />
           )}
         </div>
       </div>
@@ -236,6 +293,52 @@ const labelStyle = {
   color: "var(--ter)",
   marginBottom: 6,
 };
+
+/**
+ * A universal marker (all kinds) letting a reviewer flag an artifact as inferred
+ * / not-yet-verified — the reverse-engineering companion to `status`. Rendered
+ * as a small checkbox-style pill so it reads as low-weight metadata, not a field.
+ */
+function InferredToggle({ inferred, onToggle }: { inferred: boolean; onToggle: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onToggle}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title="Mark as inferred / low-confidence — e.g. reverse-engineered and not yet verified"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 18,
+        padding: "6px 11px 6px 8px",
+        border: `1px solid ${inferred ? "var(--warn-border)" : "rgba(var(--line),.14)"}`,
+        borderRadius: 8,
+        background: inferred ? "var(--warn-bg)" : hover ? "rgba(var(--line),.04)" : "transparent",
+        color: inferred ? "var(--warn-ink)" : "var(--sub)",
+        font: "500 12px 'IBM Plex Sans'",
+        cursor: "pointer",
+      }}
+    >
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 15,
+          height: 15,
+          borderRadius: 4,
+          border: `1.5px solid ${inferred ? "var(--warn-ink)" : "var(--ter)"}`,
+          background: inferred ? "var(--warn-ink)" : "transparent",
+        }}
+      >
+        {inferred ? <Icon name="check" size={11} color="var(--warn-bg)" /> : null}
+      </span>
+      {inferred ? "Inferred — needs review" : "Mark as inferred"}
+    </button>
+  );
+}
 
 function TitleInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (

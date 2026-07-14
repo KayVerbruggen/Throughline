@@ -1,11 +1,25 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import { composeEars } from "../../model/ears";
-import { chainOf, needWarning, requirementWarning } from "../../model/trace";
+import { chainOf, needWarning, requirementWarning, testWarning } from "../../model/trace";
 import { useStore } from "../../state/store";
-import type { ArtifactKind, Project, SpineArtifact } from "../../types";
-import { EARS_LABEL, EarsBadge, MoscowBadge, StatusBadge } from "../badges";
+import type { ArtifactKind, Project, SpineArtifact, Test } from "../../types";
+import { EARS_LABEL, EarsBadge, MoscowBadge, StatusBadge, TestResultBadge } from "../badges";
 import { Icon, type IconName } from "../icons";
+
+/** A card in the traceability grid: a spine artifact or a test. */
+type TraceNode = SpineArtifact | Test;
+
+/** The element kinds shown as columns, in spine order. */
+const COLUMN_KINDS = ["need", "use-case", "requirement", "test"] as const;
+type ColumnKind = (typeof COLUMN_KINDS)[number];
+
+const COLUMN_META: Record<ColumnKind, { icon: IconName; title: string; label: string }> = {
+  need: { icon: "need", title: "Needs", label: "Needs" },
+  "use-case": { icon: "use-case", title: "Use Cases", label: "Use Cases" },
+  requirement: { icon: "requirement", title: "Requirements", label: "Requirements" },
+  test: { icon: "test", title: "Tests", label: "Tests" },
+};
 
 interface Edge {
   from: string;
@@ -23,14 +37,18 @@ function edgesOf(project: Project): Edge[] {
   for (const r of project.requirements) {
     for (const u of r.trace) edges.push({ from: u, to: r.id });
   }
+  for (const t of project.tests) {
+    for (const r of t.trace) edges.push({ from: r, to: t.id });
+  }
   return edges;
 }
 
-function findArtifact(project: Project, id: string): SpineArtifact | null {
+function findArtifact(project: Project, id: string): TraceNode | null {
   return (
     project.needs.find((n) => n.id === id) ??
     project.useCases.find((u) => u.id === id) ??
     project.requirements.find((r) => r.id === id) ??
+    project.tests.find((t) => t.id === id) ??
     null
   );
 }
@@ -57,8 +75,15 @@ function stakeholderScope(project: Project, stakeholderId: string | null): Set<s
       ucIds.add(u.id);
     }
   }
+  const reqIds = new Set<string>();
   for (const r of project.requirements) {
-    if (r.trace.some((id) => ucIds.has(id))) scope.add(r.id);
+    if (r.trace.some((id) => ucIds.has(id))) {
+      scope.add(r.id);
+      reqIds.add(r.id);
+    }
+  }
+  for (const t of project.tests) {
+    if (t.trace.some((id) => reqIds.has(id))) scope.add(t.id);
   }
   return scope;
 }
@@ -69,6 +94,11 @@ export function TraceabilityView() {
   const [hover, setHover] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [stakeholderId, setStakeholderId] = useState<string | null>(null);
+  // Which element types appear as columns. All on by default; toggling one off
+  // drops its whole column (and its edges, which measure() skips automatically).
+  const [visibleKinds, setVisibleKinds] = useState<Set<ColumnKind>>(
+    () => new Set(COLUMN_KINDS),
+  );
   const [paths, setPaths] = useState<EdgePath[]>([]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -110,7 +140,7 @@ export function TraceabilityView() {
       ro.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [measure, focusId, stakeholderId]);
+  }, [measure, focusId, stakeholderId, visibleKinds]);
 
   const focused = focusId ? findArtifact(project, focusId) : null;
   const focusMode = focused != null;
@@ -129,11 +159,27 @@ export function TraceabilityView() {
   const needs = project.needs.filter((n) => visible(n.id));
   const useCases = project.useCases.filter((u) => visible(u.id));
   const requirements = project.requirements.filter((r) => visible(r.id));
+  const tests = project.tests.filter((t) => visible(t.id));
 
   const enter = focusMode ? undefined : (id: string) => setHover(id);
   const leave = focusMode ? undefined : () => setHover(null);
 
-  const renderCard = (artifact: SpineArtifact, warn?: string) => {
+  const shownColumns = COLUMN_KINDS.filter((k) => visibleKinds.has(k));
+  const toggleKind = (k: ColumnKind) => {
+    setVisibleKinds((prev) => {
+      const next = new Set(prev);
+      // Keep at least one column visible so the grid never collapses to nothing.
+      if (next.has(k)) {
+        if (next.size > 1) next.delete(k);
+      } else {
+        next.add(k);
+      }
+      return next;
+    });
+    setFocusId(null);
+  };
+
+  const renderCard = (artifact: TraceNode, warn?: string) => {
     if (focusMode && artifact.id === focusId) {
       return (
         <ExpandedCard
@@ -204,46 +250,116 @@ export function TraceabilityView() {
             Full view
           </button>
         ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <Legend icon="need" label="Need" />
-            <Legend icon="use-case" label="Use Case" />
-            <Legend icon="requirement" label="Requirement" />
-            <Legend icon="warn" label="Needs review" color="var(--warn)" />
+          <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+            <span style={{ font: "500 10.5px 'IBM Plex Mono'", letterSpacing: ".09em", textTransform: "uppercase", color: "var(--sub)", marginRight: 2 }}>
+              Show
+            </span>
+            {COLUMN_KINDS.map((k) => (
+              <FilterChip
+                key={k}
+                icon={COLUMN_META[k].icon}
+                label={COLUMN_META[k].label}
+                on={visibleKinds.has(k)}
+                onClick={() => toggleKind(k)}
+              />
+            ))}
           </div>
         )}
       </div>
 
-      <div
-        ref={containerRef}
-        style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 52, alignItems: "start" }}
-      >
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 0 }}>
-          {paths.map((p, i) => {
-            const active = chain != null && chain.has(p.from) && chain.has(p.to);
+      {shownColumns.length === 0 ? null : (
+        <div
+          ref={containerRef}
+          style={{
+            position: "relative",
+            display: "grid",
+            gridTemplateColumns: `repeat(${shownColumns.length}, 1fr)`,
+            gap: 52,
+            alignItems: "start",
+          }}
+        >
+          <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 0 }}>
+            {paths.map((p, i) => {
+              const active = chain != null && chain.has(p.from) && chain.has(p.to);
+              return (
+                <path
+                  key={i}
+                  d={p.d}
+                  fill="none"
+                  stroke={active ? "var(--accent)" : "rgba(var(--line),.14)"}
+                  strokeWidth={active ? 1.8 : 1.2}
+                  opacity={chain && !active ? 0.3 : 1}
+                />
+              );
+            })}
+          </svg>
+
+          {shownColumns.map((k) => {
+            const meta = COLUMN_META[k];
+            if (k === "need") {
+              return (
+                <Column key={k} icon={meta.icon} title={meta.title} count={needs.length}>
+                  {needs.map((n) => renderCard(n, needWarning(project, n)?.message))}
+                </Column>
+              );
+            }
+            if (k === "use-case") {
+              return (
+                <Column key={k} icon={meta.icon} title={meta.title} count={useCases.length}>
+                  {useCases.map((u) => renderCard(u))}
+                </Column>
+              );
+            }
+            if (k === "requirement") {
+              return (
+                <Column key={k} icon={meta.icon} title={meta.title} count={requirements.length}>
+                  {requirements.map((r) => renderCard(r, requirementWarning(r)?.message))}
+                </Column>
+              );
+            }
             return (
-              <path
-                key={i}
-                d={p.d}
-                fill="none"
-                stroke={active ? "var(--accent)" : "rgba(var(--line),.14)"}
-                strokeWidth={active ? 1.8 : 1.2}
-                opacity={chain && !active ? 0.3 : 1}
-              />
+              <Column key={k} icon={meta.icon} title={meta.title} count={tests.length}>
+                {tests.map((t) => renderCard(t, testWarning(t)?.message))}
+              </Column>
             );
           })}
-        </svg>
-
-        <Column icon="need" title="Needs" count={needs.length}>
-          {needs.map((n) => renderCard(n, needWarning(project, n)?.message))}
-        </Column>
-        <Column icon="use-case" title="Use Cases" count={useCases.length}>
-          {useCases.map((u) => renderCard(u))}
-        </Column>
-        <Column icon="requirement" title="Requirements" count={requirements.length}>
-          {requirements.map((r) => renderCard(r, requirementWarning(r)?.message))}
-        </Column>
-      </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function FilterChip({
+  icon,
+  label,
+  on,
+  onClick,
+}: {
+  icon: IconName;
+  label: string;
+  on: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={on ? `Hide ${label}` : `Show ${label}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 10px",
+        border: `1px solid ${on ? "var(--accent)" : "rgba(var(--line),.14)"}`,
+        borderRadius: 20,
+        cursor: "pointer",
+        background: on ? "var(--accent-bg)" : "transparent",
+        color: on ? "var(--accent-ink)" : "var(--ter)",
+        font: "500 12px 'IBM Plex Sans'",
+      }}
+    >
+      <Icon name={icon} size={13} color={on ? "var(--accent-ink)" : "var(--ter)"} />
+      {label}
+    </button>
   );
 }
 
@@ -269,17 +385,6 @@ const fullViewBtnStyle = {
   font: "500 12.5px 'IBM Plex Sans'",
   cursor: "pointer",
 } as const;
-
-function Legend({ icon, label, color }: { icon: IconName; label: string; color?: string }) {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, font: "400 12px 'IBM Plex Sans'", color: "var(--sub)" }}>
-      <span style={{ display: "flex" }}>
-        <Icon name={icon} size={15} color={color ?? "var(--sub)"} />
-      </span>
-      {label}
-    </span>
-  );
-}
 
 function Column({
   icon,
@@ -308,7 +413,7 @@ function Column({
   );
 }
 
-function CardHeader({ artifact, warn }: { artifact: SpineArtifact; warn?: string }) {
+function CardHeader({ artifact, warn }: { artifact: TraceNode; warn?: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
       <span style={{ font: "500 11.5px 'IBM Plex Mono'", color: "var(--sub)" }}>{artifact.id}</span>
@@ -318,7 +423,11 @@ function CardHeader({ artifact, warn }: { artifact: SpineArtifact; warn?: string
         </span>
       ) : null}
       <div style={{ flex: 1 }} />
-      <StatusBadge status={artifact.status} />
+      {artifact.kind === "test" ? (
+        <TestResultBadge result={artifact.result} />
+      ) : (
+        <StatusBadge status={artifact.status} />
+      )}
     </div>
   );
 }
@@ -333,7 +442,7 @@ function Card({
   onLeave,
   onClick,
 }: {
-  artifact: SpineArtifact;
+  artifact: TraceNode;
   dim: boolean;
   highlight: boolean;
   warn?: string;
@@ -342,7 +451,6 @@ function Card({
   onLeave?: () => void;
   onClick: () => void;
 }) {
-  const isReq = artifact.kind === "requirement";
   return (
     <div
       ref={(el) => register(artifact.id, el)}
@@ -364,10 +472,27 @@ function Card({
       <div style={{ font: "500 13px/1.35 'IBM Plex Sans'", color: "var(--ink)", marginBottom: 8, textWrap: "pretty" }}>
         {artifact.title}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {isReq ? <EarsBadge ears={artifact.ears} /> : null}
-        <MoscowBadge moscow={artifact.moscow} />
-      </div>
+      {artifact.kind === "test" ? (
+        artifact.file ? (
+          <div
+            style={{
+              font: "400 11px 'IBM Plex Mono'",
+              color: "var(--ter)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={artifact.file}
+          >
+            {artifact.file}
+          </div>
+        ) : null
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {artifact.kind === "requirement" ? <EarsBadge ears={artifact.ears} /> : null}
+          <MoscowBadge moscow={artifact.moscow} />
+        </div>
+      )}
     </div>
   );
 }
@@ -383,7 +508,7 @@ function ExpandedCard({
   onBack,
   onEdit,
 }: {
-  artifact: SpineArtifact;
+  artifact: TraceNode;
   warn?: string;
   register: (id: string, el: HTMLDivElement | null) => void;
   onBack: () => void;
@@ -411,7 +536,11 @@ function ExpandedCard({
           </span>
         ) : null}
         <div style={{ flex: 1 }} />
-        <StatusBadge status={artifact.status} />
+        {artifact.kind === "test" ? (
+          <TestResultBadge result={artifact.result} />
+        ) : (
+          <StatusBadge status={artifact.status} />
+        )}
         <button onClick={onEdit} title="Open in editor" style={miniBtnStyle}>
           Edit
         </button>
@@ -425,14 +554,17 @@ function ExpandedCard({
         {artifact.title}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        {artifact.kind === "requirement" ? <EarsBadge ears={artifact.ears} /> : null}
-        <MoscowBadge moscow={artifact.moscow} />
-      </div>
+      {artifact.kind !== "test" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+          {artifact.kind === "requirement" ? <EarsBadge ears={artifact.ears} /> : null}
+          <MoscowBadge moscow={artifact.moscow} />
+        </div>
+      )}
 
       {artifact.kind === "need" && <NeedExpanded need={artifact} />}
       {artifact.kind === "use-case" && <UseCaseExpanded uc={artifact} />}
       {artifact.kind === "requirement" && <RequirementExpanded req={artifact} />}
+      {artifact.kind === "test" && <TestExpanded test={artifact} />}
     </div>
   );
 }
@@ -524,6 +656,40 @@ function RequirementExpanded({ req }: { req: Extract<SpineArtifact, { kind: "req
   );
 }
 
+function TestExpanded({ test }: { test: Test }) {
+  return (
+    <>
+      {test.file ? (
+        <ExpandedField label="File">
+          <span style={{ font: "400 12px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-all" }}>
+            {test.file}
+          </span>
+        </ExpandedField>
+      ) : null}
+      <ExpandedField label="Verifies">
+        {test.trace.length === 0 ? (
+          <span style={{ font: "400 12.5px 'IBM Plex Sans'", color: "var(--faint)" }}>
+            No requirement.
+          </span>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {test.trace.map((id) => (
+              <span key={id} style={{ ...tagStyle, borderRadius: 5 }}>
+                {id}
+              </span>
+            ))}
+          </div>
+        )}
+      </ExpandedField>
+      {test.body ? (
+        <p style={{ margin: "2px 0 0", font: "400 13px/1.55 'IBM Plex Sans'", color: "var(--sub)", textWrap: "pretty" }}>
+          {test.body}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function ExpandedField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 12 }}>
@@ -558,5 +724,11 @@ const miniBtnStyle = {
 } as const;
 
 function kindIcon(kind: ArtifactKind): IconName {
-  return kind === "need" ? "need" : kind === "use-case" ? "use-case" : "requirement";
+  return kind === "need"
+    ? "need"
+    : kind === "use-case"
+      ? "use-case"
+      : kind === "test"
+        ? "test"
+        : "requirement";
 }

@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 
+import { InferredBadge } from "./badges";
+
 export function ListContainer({ children }: { children: ReactNode }) {
   return <div style={{ padding: "6px 26px 48px" }}>{children}</div>;
 }
@@ -75,18 +77,22 @@ export function CellId({ id, warnMessage }: { id: string; warnMessage?: string }
   );
 }
 
-export function CellTitle({ title }: { title: string }) {
+export function CellTitle({ title, inferred }: { title: string; inferred?: boolean }) {
   return (
-    <div
-      style={{
-        font: "500 13.5px 'IBM Plex Sans'",
-        color: "var(--ink)",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {title}
+    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+      <span
+        style={{
+          font: "500 13.5px 'IBM Plex Sans'",
+          color: "var(--ink)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          minWidth: 0,
+        }}
+      >
+        {title}
+      </span>
+      {inferred ? <InferredBadge /> : null}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 
-import type { EarsPattern, Moscow, StakeholderType, Status } from "../types";
+import type { DecisionStatus, EarsPattern, Moscow, StakeholderType, Status, TestResult } from "../types";
 import { Icon } from "./icons";
 
 // --- label + color maps -----------------------------------------------------
@@ -14,6 +14,18 @@ const STATUS: Record<Status, { bg: string; color: string; label: string }> = {
 const STAKEHOLDER_TYPE: Record<StakeholderType, { bg: string; color: string; label: string }> = {
   primary: { bg: "oklch(0.95 0.03 258)", color: "oklch(0.48 0.12 258)", label: "Primary" },
   secondary: { bg: "rgba(var(--line),.06)", color: "var(--sub)", label: "Secondary" },
+};
+
+const DECISION_STATUS: Record<DecisionStatus, { bg: string; color: string; label: string }> = {
+  proposed: { bg: "rgba(var(--line),.06)", color: "#6b6c70", label: "Proposed" },
+  accepted: { bg: "oklch(0.94 0.045 150)", color: "oklch(0.42 0.09 150)", label: "Accepted" },
+  superseded: { bg: "oklch(0.94 0.04 40)", color: "oklch(0.48 0.11 40)", label: "Superseded" },
+};
+
+const TEST_RESULT: Record<TestResult, { bg: string; color: string; label: string }> = {
+  pass: { bg: "oklch(0.94 0.045 150)", color: "oklch(0.42 0.09 150)", label: "Pass" },
+  fail: { bg: "oklch(0.93 0.06 25)", color: "oklch(0.5 0.18 25)", label: "Fail" },
+  unknown: { bg: "rgba(var(--line),.06)", color: "#6b6c70", label: "Not run" },
 };
 
 const MOSCOW: Record<Moscow, { color: string; label: string }> = {
@@ -51,6 +63,52 @@ export function StatusBadge({ status }: { status: Status }) {
       }}
     >
       {s.label}
+    </span>
+  );
+}
+
+export function DecisionStatusBadge({ status }: { status: DecisionStatus }) {
+  const s = DECISION_STATUS[status];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        font: "500 10.5px 'IBM Plex Mono'",
+        letterSpacing: ".02em",
+        color: s.color,
+        background: s.bg,
+        padding: "3px 8px",
+        borderRadius: 6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {s.label}
+    </span>
+  );
+}
+
+export function TestResultBadge({ result }: { result: TestResult }) {
+  const r = TEST_RESULT[result];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        font: "500 10.5px 'IBM Plex Mono'",
+        letterSpacing: ".02em",
+        color: r.color,
+        background: r.bg,
+        padding: "3px 8px",
+        borderRadius: 6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span
+        style={{ width: 6, height: 6, borderRadius: "50%", background: r.color, flex: "none" }}
+      />
+      {r.label}
     </span>
   );
 }
@@ -133,6 +191,33 @@ export function TraceChip({
     >
       {icon}
       {id}
+    </span>
+  );
+}
+
+/**
+ * Marks an artifact as inferred / low-confidence (e.g. reverse-engineered and
+ * unverified). Deliberately styled like the warn palette so a reviewer's eye is
+ * drawn to "check this first".
+ */
+export function InferredBadge() {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        font: "500 10.5px 'IBM Plex Mono'",
+        letterSpacing: ".02em",
+        color: "var(--warn-ink)",
+        background: "var(--warn-bg)",
+        padding: "3px 8px",
+        borderRadius: 6,
+        whiteSpace: "nowrap",
+      }}
+      title="Inferred / low-confidence — needs human review"
+    >
+      inferred
     </span>
   );
 }

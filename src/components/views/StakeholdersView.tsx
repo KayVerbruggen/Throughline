@@ -23,7 +23,7 @@ export function StakeholdersView() {
         rows.map((s) => (
           <Row key={s.id} columns={COLS} onClick={() => select("stakeholder", s.id)}>
             <CellId id={s.id} />
-            <CellTitle title={s.title} />
+            <CellTitle title={s.title} inferred={s.inferred} />
             <div>
               <StakeholderTypeBadge type={s.type} />
             </div>

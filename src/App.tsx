@@ -4,10 +4,13 @@ import { DetailPanel } from "./components/detail/DetailPanel";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { BehaviorView } from "./components/views/BehaviorView";
+import { DecisionsView } from "./components/views/DecisionsView";
+import { GlossaryView } from "./components/views/GlossaryView";
 import { NeedsView } from "./components/views/NeedsView";
 import { RequirementsView } from "./components/views/RequirementsView";
 import { StakeholdersView } from "./components/views/StakeholdersView";
 import { StructureView } from "./components/views/StructureView";
+import { TestsView } from "./components/views/TestsView";
 import { TraceabilityView } from "./components/views/TraceabilityView";
 import { UseCasesView } from "./components/views/UseCasesView";
 import { useStore } from "./state/store";
@@ -81,6 +84,12 @@ function Content({ view }: { view: ReturnType<typeof useStore.getState>["view"] 
       return <StructureView />;
     case "behavior":
       return <BehaviorView />;
+    case "decisions":
+      return <DecisionsView />;
+    case "glossary":
+      return <GlossaryView />;
+    case "tests":
+      return <TestsView />;
   }
 }
 

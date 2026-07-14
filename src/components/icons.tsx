@@ -13,6 +13,15 @@ export type IconName =
   | "warn"
   | "trash"
   | "close"
+  | "back"
+  | "check"
+  | "chevron"
+  | "grip"
+  | "focus"
+  | "folder"
+  | "decision"
+  | "glossary"
+  | "test"
   | "sun"
   | "moon";
 
@@ -110,6 +119,64 @@ function shape(name: IconName, color: string, stroke: Record<string, unknown>) {
       );
     case "close":
       return <path d="M4.4 4.4 13.6 13.6M13.6 4.4 4.4 13.6" {...stroke} />;
+    case "back":
+      return <path d="M11 4 6 9l5 5" {...stroke} />;
+    case "check":
+      return <path d="M3.8 9.4 7.2 13 14.2 5.4" {...stroke} />;
+    case "chevron":
+      return <path d="M4.5 6.75 9 11.25l4.5-4.5" {...stroke} />;
+    case "grip":
+      return (
+        <>
+          <circle cx={6.6} cy={4.5} r={1.1} fill={color} />
+          <circle cx={11.4} cy={4.5} r={1.1} fill={color} />
+          <circle cx={6.6} cy={9} r={1.1} fill={color} />
+          <circle cx={11.4} cy={9} r={1.1} fill={color} />
+          <circle cx={6.6} cy={13.5} r={1.1} fill={color} />
+          <circle cx={11.4} cy={13.5} r={1.1} fill={color} />
+        </>
+      );
+    case "focus":
+      return (
+        <>
+          <path d="M3 6.5V4.5A1.5 1.5 0 0 1 4.5 3H6.5" {...stroke} />
+          <path d="M11.5 3H13.5A1.5 1.5 0 0 1 15 4.5V6.5" {...stroke} />
+          <path d="M15 11.5V13.5A1.5 1.5 0 0 1 13.5 15H11.5" {...stroke} />
+          <path d="M6.5 15H4.5A1.5 1.5 0 0 1 3 13.5V11.5" {...stroke} />
+          <circle cx={9} cy={9} r={1.7} fill={color} />
+        </>
+      );
+    case "folder":
+      return (
+        <path
+          d="M2.6 5.4a1.4 1.4 0 0 1 1.4-1.4h2.3l1.4 1.6h6.3a1.4 1.4 0 0 1 1.4 1.4v5.6a1.4 1.4 0 0 1-1.4 1.4H4a1.4 1.4 0 0 1-1.4-1.4Z"
+          {...stroke}
+        />
+      );
+    case "decision":
+      // A lightbulb — the recorded rationale / "why".
+      return (
+        <>
+          <path d="M6 11.2a4 4 0 1 1 6 0c-.5.6-.9 1.1-1 1.9H7c-.1-.8-.5-1.3-1-1.9Z" {...stroke} />
+          <path d="M7.3 15.2h3.4" {...stroke} />
+        </>
+      );
+    case "glossary":
+      // An open book — the shared vocabulary.
+      return (
+        <>
+          <path d="M9 4.6C7.6 3.7 5.7 3.5 4 3.9v8.9c1.7-.4 3.6-.2 5 .7 1.4-.9 3.3-1.1 5-.7V3.9c-1.7-.4-3.6-.2-5 .7Z" {...stroke} />
+          <path d="M9 4.6v8.9" {...stroke} />
+        </>
+      );
+    case "test":
+      // A check inside a rounded badge — a verified requirement.
+      return (
+        <>
+          <rect x={3} y={3} width={12} height={12} rx={3.2} {...stroke} />
+          <path d="M6 9.2 8.1 11.3 12 6.9" {...stroke} />
+        </>
+      );
     case "sun":
       return (
         <>

@@ -26,7 +26,7 @@ export function UseCasesView() {
           return (
             <Row key={u.id} columns={COLS} onClick={() => select("use-case", u.id)}>
               <CellId id={u.id} warnMessage={warn?.message} />
-              <CellTitle title={u.title} />
+              <CellTitle title={u.title} inferred={u.inferred} />
               <div>
                 <StatusBadge status={u.status} />
               </div>

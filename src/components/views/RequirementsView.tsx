@@ -32,7 +32,7 @@ export function RequirementsView() {
           return (
             <Row key={r.id} columns={COLS} onClick={() => select("requirement", r.id)}>
               <CellId id={r.id} warnMessage={warn?.message} />
-              <CellTitle title={r.title} />
+              <CellTitle title={r.title} inferred={r.inferred} />
               <div>
                 <StatusBadge status={r.status} />
               </div>
