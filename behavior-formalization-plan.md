@@ -5,6 +5,16 @@ a formal, executable model that can generate state charts.* The end goal is that
 a flow like FL-001 ("Pass a vessel downstream") can be **run** — its guards
 evaluated against typed state — and that a **state chart** can be derived from it.
 
+> **Terminology, corrected mid-build (2026-07-14):** two different artefacts got
+> conflated under "state chart". A **UML activity diagram** is per *flow* —
+> nodes are activities, edges are control flow — and needs only guards; this
+> shipped (see 3a) and lives beside the steps in the Behaviour view. A **state
+> chart** is per *component* — states are the values of one component's mode
+> variable — and, structurally, needs effects (see 3b). Running the activity
+> diagram (Stage 2) may itself be the real payoff, with the per-component state
+> chart an optional derived view; that forward direction is an open decision
+> recorded under Sequencing & risk.
+
 This is a staged plan. Each stage ships independently and the parsing/evaluation
 core is pure (no I/O, fully unit-testable). Direction was set by four decisions:
 
@@ -189,10 +199,27 @@ transition *does*, they don't constitute it.
 
 ---
 
-## Stage 2 — Simulator + consistency checks (the "executable" payoff)
+## Stage 2 — Execute the activity diagram (simulator + checks)
 
-**Goal:** run a flow and catch defects — the chosen primary payoff.
+**Goal:** run a flow and catch defects — the chosen primary payoff. The
+activity diagram shipped in Stage 3's first cut (`model/activityDiagram.ts`,
+now beside the steps in the Behaviour view) is exactly the graph this executes:
+a token walks it, applying effects and evaluating guards. "Executable" here
+means *this diagram runs* — no separate formalism, and (see the note under
+Stage 3) **no state chart required** to get the executable payoff.
 
+- `model/interpret.ts` (pure) + the still-deferred `expr/evaluate.ts`: a
+  single-token interpreter with UML activity/token semantics. The machine state
+  is a *valuation* (each `component.var` → value). Step: at an activity node
+  check `pre`, then apply its `effects` in order; at a decision (a step that has
+  outgoing alternates) evaluate the sibling `guard`s to choose the edge, falling
+  through to `main` when none fire; move the token; stop at `End`.
+- **Interactive execution in the diagram pane** — the tangible payoff: Play /
+  Step / Reset controls, the current node and last-taken edge highlighted, and a
+  valuation side-panel showing every variable's live value. Optionally let the
+  author set the starting valuation (overriding `Variable.initial`) and pick a
+  branch by hand where guards are ambiguous or not yet formalised. This makes
+  the model feel executable without ever mentioning state charts.
 - `model/simulate.ts` (pure): initial valuation from component `Variable.initial`
   (optionally overlaid by the use case's preconditions once those are formalized).
   Walk `main`, applying `effects` where present — an activity with **no**
@@ -219,43 +246,88 @@ located warning in the UI.
 
 ---
 
-## Stage 3 — State chart generation
+## Stage 3 — Activity diagram (shipped) and, separately, state charts
 
-**Goal:** derive and show a state machine; the roadmap's headline deliverable.
+This stage split in two once built, because the first thing delivered turned
+out **not** to be a state chart. Keep the two ideas distinct:
 
-**Status (2026-07-14): first cut shipped.** A pure `model/statechart.ts`
-(`deriveStateChart`) turns a flow into a directed `Start → activities → End`
-graph: the happy path is a central spine, each in-range alternate is a branch
-whose entry edge carries its Stage-0 `guard` (falling back to the prose
-`condition`, marked non-formal) and whose last step `rejoin`s the main flow (or
-runs to `End`); rejoins to an earlier step are detected as back edges. Layout is
-deterministic — rank by step order, greedy lane-packing so vertically disjoint
-alternates share a column. A new **State Chart** sidebar view renders it (edges
-in SVG with arrow markers, activity nodes as component-coloured cards over the
-top), sharing the Behaviour view's selected-use-case pref and letting a node
-click open its owning component. It reads **only guards, never effects** — the
-concrete proof of the decoupling: FL-001 (and the EVSE seed) chart fully with
-zero activity effects authored. Unit-tested (`statechart.test.ts`) and verified
-in-app. Explicit-mode collapsing and export stay deferred as below.
+### 3a. Activity diagram — shipped (2026-07-14)
 
-- **First cut — derive from flow control-points:** each activity/step is a node;
-  edges follow `main` order and alternate `after`/`rejoin`; edge labels are the
-  guards from Stage 0 where present, else just the activity's label. This is
-  auto-derivable from what exists *today* plus guards — **it needs zero Stage 1
-  effects.** An activity with no `effects` still renders as a normal edge (the
-  chart shows *that* a transition happens and *when* it's guarded, not
-  necessarily *what state it changes*); effects only make a node's downstream
-  guards evaluable in Stage 2's simulator, they aren't required to draw the
-  chart. This is the concrete answer to "can I get an executable-looking model
-  without writing assignments first": yes, via guards alone. Render in a new
-  "State chart" view (reuse `model/layout.ts`).
-- **Later — explicit modes:** let a component declare a distinguished `enum`
-  variable as its *mode* (e.g. lock: `Idle → Filling → UpperLevel → Emptying →
-  LowerLevel`); collapse the control-point graph onto mode transitions to get a
-  true data statechart. Deferred until the derived-from-flow view proves the value.
-- Export (Mermaid `stateDiagram-v2` / SCXML / XState) is **deferred** per the
-  decision to prioritize in-app simulation; the derived model is designed to make
-  export a later, mechanical addition.
+A pure `model/activityDiagram.ts` (`deriveActivityDiagram`) turns a flow into a
+directed `Start → activities → End` graph: the happy path is a central spine,
+each in-range alternate is a branch whose entry edge carries its Stage-0 `guard`
+(falling back to the prose `condition`, marked non-formal) and whose last step
+`rejoin`s the main flow (or runs to `End`); backward rejoins are drawn as
+up-loops. Layout is deterministic — rank by step order, greedy lane-packing so
+vertically disjoint alternates share a column. It renders in the **Behaviour
+view**, split beside the step list (steps left, diagram sticky on the right),
+reading **only guards, never effects** — the effect-free payoff the revised plan
+called for. Nodes are read-only (the editor is right there). Unit-tested
+(`activityDiagram.test.ts`), verified in-app on the EVSE seed.
+
+This is a **UML activity diagram** (nodes = activities, edges = control flow,
+per *flow*), not a state chart. It's the substrate Stage 2 executes.
+
+### 3b. State chart — per component, and it fundamentally needs effects
+
+A state chart is a different projection, and the earlier plan conflated it with
+the activity graph. The distinction that matters:
+
+- A state chart is scoped to **one component**. Its *states* are the values of
+  that component's chosen **mode** variable (typically an `enum` — a lock's
+  `Idle → Filling → UpperLevel → Emptying → LowerLevel`, a gate's `open|closed`).
+  Its *transitions* are the actions that change that mode.
+- Those transitions **are** the component's `effects` that assign the mode
+  variable (`gate.state := open`), guarded by the `pre`/branch `guard` that held
+  when they fired, and they span **every flow the component appears in** — a
+  component's state machine is a cross-flow, whole-component view, whereas the
+  activity diagram is a single flow.
+- **Therefore a state chart cannot be derived from guards alone.** A machine
+  with no state changes is one state and no transitions; the state changes are
+  exactly the effects. This is the structural reason effects are unavoidable
+  *here specifically* — and, symmetrically, why the activity diagram (only
+  control flow) was correctly the effect-free first deliverable. If you want the
+  per-component state chart, Stage 1 effects on the mode-changing activities are
+  the price of entry, and there's no shortcut around it.
+
+**Small schema addition when we build it:** designate a component's mode
+variable — a `mode?: string` on `Component` naming one of its `variables` (or a
+convention like "the first enum variable"). Optional; a component with no mode
+simply has no state chart.
+
+Two ways to produce it, once effects exist:
+
+- **Derived as a projection of execution (preferred).** Run/enumerate the flows
+  (Stage 2's interpreter); for the chosen component, record each observed
+  `modeBefore --activity/guard--> modeAfter` whenever an effect changes the mode,
+  and aggregate across all flows. Grounded in real runs — the states shown are
+  reachable ones — at the cost of only surfacing transitions some flow exercises.
+- **Static from effects + guards (no run).** States = the mode enum's values;
+  for each activity effect `comp.mode := Y` across all flows, an edge into `Y`,
+  sourced from the value its `pre`/branch guard pins (`comp.mode == X`) when one
+  does, else "any". Shows all declared states and authored transitions without a
+  simulation, but the source state is ambiguous when nothing constrains it.
+
+**Rendering:** per component — in the component detail panel or a dedicated
+view — states as nodes, transitions as labelled edges. Reuse `model/layout.ts`.
+
+### Do we even need state charts? (a real option)
+
+Maybe not, or not centrally. The activity diagram + effects + guards is already
+a complete executable model, and **executing it** (Stage 2) delivers the whole
+payoff — stepping/animation, the live valuation, and every consistency check
+(unreachable branch, nondeterminism, precondition violation, safety invariants)
+— without ever collapsing to a state chart. On that reading the per-component
+state chart is an *optional derived view* answering one specific question ("what
+states can this one component be in, across everything it does?"), worth
+generating only for components with a meaningful mode (a lock, a gate, a charging
+session), not a prerequisite for anything. **Recommended sequencing: build the
+executable activity diagram first (Stage 2); add the per-component state chart
+later, as a derived projection, only where a mode variable is declared.**
+
+Export (Mermaid `stateDiagram-v2` / SCXML / XState) stays **deferred** for both
+the activity diagram and the state chart; both derived models are structured to
+make export a later, mechanical addition.
 
 ---
 
@@ -272,3 +344,15 @@ in-app. Explicit-mode collapsing and export stay deferred as below.
   effect. It doesn't, permanently — see the decoupling note after the decision
   table. No schema change follows from this; it changes Stage 1's exit
   criterion and Stage 2/3's handling of effect-free activities, not `types.ts`.
+- Corrected (2026-07-14): the shipped graph is an **activity diagram** (per
+  flow, control flow, guards-only), not a state chart. It now lives beside the
+  steps in the Behaviour view rather than as its own nav item. A real state
+  chart is per *component*, over a mode variable, and needs effects — see 3b.
+- Open decision (forward direction): **(A)** build the executable activity
+  diagram next (Stage 2 interpreter + interactive run + checks) and treat the
+  per-component state chart as a later derived projection — *recommended*; or
+  **(B)** build per-component state-chart derivation next (static, from effects
+  + guards). (A) leverages the diagram already shipped, makes effects visibly
+  pay off, and directly answers "maybe we don't need state charts"; (B) delivers
+  the classic state-machine artefact sooner but front-loads the effects work and
+  a schema addition (the mode marker) before anything runs.
