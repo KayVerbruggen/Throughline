@@ -201,6 +201,19 @@ transition *does*, they don't constitute it.
 
 ## Stage 2 — Execute the activity diagram (simulator + checks)
 
+**Status (2026-07-14): interactive execution shipped; batch checks pending.**
+The pure evaluator (`expr/evaluate.ts` — `evaluate` + `applyAssignment` over a
+`Valuation`) and the interpreter (`model/interpret.ts` — `initExec` / `outgoing`
+/ `autoTransition` / `advance` / `autoStep`, single-token UML semantics) are in,
+both unit-tested. The diagram pane runs them: Run / Play / Step / Reset walk the
+token, the current node and last edge highlight, a live valuation panel shows
+each variable (changed ones flash), branch buttons carry TRUE/FALSE guard badges
+and allow manual override, and reaching End reports the step count. Unmet
+preconditions / skipped effects surface as inline notes. Verified on the EVSE
+seed. Still to do: the *batch* consistency checks below (reachability /
+nondeterminism / invariants over enumerated valuations) surfaced in the warning
+UI, and letting the author set the starting valuation.
+
 **Goal:** run a flow and catch defects — the chosen primary payoff. The
 activity diagram shipped in Stage 3's first cut (`model/activityDiagram.ts`,
 now beside the steps in the Behaviour view) is exactly the graph this executes:
