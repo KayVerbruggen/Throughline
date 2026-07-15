@@ -12,6 +12,7 @@ import {
   autoStep,
   autoTransition,
   initExec,
+  isDecisionPoint,
   outgoing,
   variableRows,
   type ExecState,
@@ -87,13 +88,16 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
     setRun(null);
   };
 
-  // Auto-play: advance on a timer until the token reaches End.
+  // Auto-play: advance on a timer until the token reaches End. Hold at an
+  // unresolved fork (guards don't force a single path) so the user picks the
+  // branch; choosing advances the token and this effect resumes the timer.
   useEffect(() => {
     if (!playing || !run) return;
     if (run.exec.done) {
       setPlaying(false);
       return;
     }
+    if (isDecisionPoint(outgoing(project, flow, run.exec))) return;
     const id = setTimeout(() => {
       setRun((r) => {
         if (!r || r.exec.done) return r;

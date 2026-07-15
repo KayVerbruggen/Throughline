@@ -191,6 +191,22 @@ export function autoTransition(transitions: Transition[]): Transition | null {
   return transitions.find((t) => t.kind !== "branch") ?? transitions[transitions.length - 1] ?? null;
 }
 
+/**
+ * Whether the guards at this fork leave the next step genuinely undecided — a
+ * point where auto-play should pause and let the user pick, rather than have
+ * `autoTransition` silently choose. A single outgoing edge is never a choice.
+ * With a firing guard the branch is forced (unless two guards fire at once);
+ * with no branch firing the sequential continue is forced *unless* a branch's
+ * guard can't be evaluated (guard-less or unresolved), which reopens the choice.
+ */
+export function isDecisionPoint(transitions: Transition[]): boolean {
+  const branches = transitions.filter((t) => t.kind === "branch");
+  if (transitions.length <= 1 || branches.length === 0) return false;
+  const firing = branches.filter((t) => t.guardValue === true);
+  if (firing.length > 0) return firing.length > 1;
+  return branches.some((t) => t.guardValue === undefined);
+}
+
 // --- advancing --------------------------------------------------------------
 
 /** Move the token along `t`, applying the destination activity's effects (and

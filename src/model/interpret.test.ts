@@ -6,8 +6,10 @@ import {
   autoStep,
   initExec,
   initialValuation,
+  isDecisionPoint,
   outgoing,
   variableRows,
+  type Transition,
 } from "./interpret";
 import { emptyProject, type Activity, type Component, type Flow, type Project, type Variable } from "../types";
 
@@ -112,6 +114,22 @@ describe("flow interpreter", () => {
     s = autoStep(p, f, s); // arrive at m0 (ACT-003), pre fails
     expect(s.nodeId).toBe("m0");
     expect(s.notes.some((n) => n.includes("Precondition not met"))).toBe(true);
+  });
+
+  it("flags a fork as a decision point only when guards leave it undecided", () => {
+    const seq = (): Transition => ({ to: "m1", kind: "seq" });
+    const branch = (guardValue?: boolean): Transition => ({ to: "AP-1#0", kind: "branch", guardValue });
+
+    // A single continuation is never a choice.
+    expect(isDecisionPoint([seq()])).toBe(false);
+    // A firing guard forces the branch — no pause needed.
+    expect(isDecisionPoint([branch(true), seq()])).toBe(false);
+    // Every branch guard is false — the continue is forced.
+    expect(isDecisionPoint([branch(false), seq()])).toBe(false);
+    // A guard-less / unresolved branch reopens the choice.
+    expect(isDecisionPoint([branch(undefined), seq()])).toBe(true);
+    // Two guards firing at once is genuinely ambiguous.
+    expect(isDecisionPoint([branch(true), branch(true), seq()])).toBe(true);
   });
 
   it("lists variable rows with current values", () => {
