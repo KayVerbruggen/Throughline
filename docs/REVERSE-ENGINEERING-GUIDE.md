@@ -188,10 +188,11 @@ A static dependency (an `import`, a function call) is *not* expressible on its
 own. If two components clearly interact but you can't situate that interaction in
 any behaviour, you have two bad options: invent a thin flow just to carry the
 edge, or leave the edge out. Prefer authoring a *real* end-to-end flow that
-naturally chains them. When self-modelling Throughline, three genuine flows (load
-a project, edit-and-save, formalise a guard) produced nine connections for free —
-that is the intended workflow. Don't try to enumerate the dependency graph
-directly; pick the important behaviours and let the edges fall out.
+naturally chains them. When self-modelling Throughline, authoring a flow for each
+use case — starting with three genuine ones (load a project, edit-and-save,
+formalise a guard) — chained activities across components and let the connections
+fall out for free; that is the intended workflow. Don't try to enumerate the
+dependency graph directly; pick the important behaviours and let the edges fall out.
 
 ### 5b. Traces are forward-only and strictly typed by level
 

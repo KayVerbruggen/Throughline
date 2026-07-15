@@ -27,12 +27,12 @@ docs/
   stakeholders/  SH-001 … SH-004   who the tool is for
   needs/         N-001  … N-009    what they need
   use-cases/     UC-001 … UC-010   how the tool satisfies those needs
-  requirements/  R-001  … R-012    EARS "shall" statements
-  components/    C-001  … C-010    the actual code, as a component hierarchy
-  flows/         FL-001 … FL-003   three key behaviours, as ordered activities
+  requirements/  R-001  … R-014    EARS "shall" statements
+  components/    C-001  … C-012    the actual code, as a component hierarchy
+  flows/         FL-001 … FL-010   one behaviour per use case, as ordered activities
   decisions/     D-001  … D-004    the architectural choices, as Y-statements
   glossary/      G-001  … G-006    the tool's domain vocabulary
-  tests/         T-001  … T-005    the automated suite verifying the requirements
+  tests/         T-001  … T-009    the automated suite verifying the requirements
 ```
 
 The app only reads those per-kind subfolders, so this README and the guide
@@ -45,16 +45,21 @@ folder) are ignored by the loader — safe to keep here.
   under it via a stored `parent`.
 - The component tree mirrors the source tree: `Storage Layer` ≈ `src-tauri` +
   `src/storage`, `Model Core` ≈ `src/model` (with `Expression Engine` ≈
-  `src/model/expr` and `Structure Deriver` ≈ `behavior.ts`/`layout.ts`/
-  `hierarchy.ts`), `View Layer` ≈ `src/components`.
+  `src/model/expr`, `Structure Deriver` ≈ `behavior.ts`/`layout.ts`/
+  `hierarchy.ts`, and `Behaviour Engine` ≈ `interpret.ts`/`activityDiagram.ts`/
+  `sequenceDiagram.ts`/`actors.ts`), `View Layer` ≈ `src/components` (whose views
+  include the `Traceability View`).
 - The **connections** drawn between components in the Structure view are **not**
-  stored here. They are derived from the flows: three flows (load a project,
-  edit-and-save, formalise a guard) chain activities across components, and every
-  back-to-back pair becomes a connection. Nine connections fall out of the three
-  flows.
-- Two alternate paths carry real guards that type-check against real component
-  variables (`applicationStore.dirty == false`, `expressionEngine.valid ==
-  false`), so the behaviour-formalisation feature is exercised on the tool itself.
+  stored here. They are derived from the flows: ten flows — one per use case —
+  chain activities across components, and every back-to-back pair becomes a
+  connection.
+- Alternate-path guards type-check against real component variables
+  (`applicationStore.dirty == false`, `expressionEngine.valid == false`), so the
+  behaviour-formalisation feature is exercised on the tool itself. Those flows
+  are also **executable**: the Behaviour Engine derives an activity diagram from
+  each flow and steps a token through it (applying effects, evaluating guards),
+  and derives a sequence diagram whose actor lifelines (`Systems Engineer`,
+  `LLM Agent`, `Design Reviewer`) resolve to the stakeholders of the same name.
 - The four **design decisions** (`decisions/`) record the choices that most
   surprise a reader — structure-from-behaviour, plain-text storage, forward-only
   traces, title-handle guard references. Each traces to the use case it serves,
@@ -68,8 +73,11 @@ folder) are ignored by the loader — safe to keep here.
   Vitest file in the repo (`file:` points at it) that traces to the requirement it
   checks and carries its latest `result`. They exercise the tool's own pure core —
   trace lookups (T-001 → R-002), flow-derived structure (T-002 → R-004), id
-  allocation (T-003 → R-011), file tolerance (T-004 → R-008), and guard
-  type-checking (T-005 → R-006). Run them with `npm run test`.
+  allocation (T-003 → R-011), file tolerance (T-004 → R-008), guard
+  type-checking (T-005 → R-006), and the Behaviour Engine — activity-diagram
+  derivation (T-006), flow interpretation (T-007) and guard evaluation
+  (T-008 → R-013), plus sequence-diagram derivation (T-009 → R-014). Run them
+  with `npm run test`.
 
 ## One honest gap
 
