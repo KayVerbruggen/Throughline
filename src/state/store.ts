@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { loadLlmConfig, saveLlmConfig, type LlmConfig } from "../llm";
+import { loadLlmConfig, saveLlmConfig, type AuthoredDraft, type LlmConfig } from "../llm";
 import { componentHandle, renameComponentHandle } from "../model/expr";
 import { nextId, nextVariableId } from "../model/ids";
 import { createStorage, type StorageAdapter } from "../storage";
@@ -143,6 +143,12 @@ interface AppState {
   setLlmConfig: (patch: Partial<LlmConfig>) => void;
 
   createArtifact: (kind: ArtifactKind) => Promise<void>;
+  /**
+   * Create an artifact from a validated natural-language draft (see
+   * `llm/authoring.ts`), select it, and return its kind + id so the caller can
+   * navigate to it. Builds on the same per-kind blank as `createArtifact`.
+   */
+  createFromDraft: (draft: AuthoredDraft) => Promise<{ kind: ArtifactKind; id: string }>;
   /**
    * Create a component nested under `parentId` ("" = top-level) and select it,
    * so the structure view can add components in place. Kept separate from
@@ -363,6 +369,59 @@ function newArtifact(project: Project, kind: ArtifactKind): Artifact {
   }
 }
 
+/**
+ * Build a real artifact from a validated natural-language draft: start from the
+ * per-kind blank (which supplies the id, created date, and all defaults) and
+ * overlay only the slots the draft carries. The draft is a union keyed by kind,
+ * so each arm overrides exactly the fields that kind owns.
+ */
+function buildFromDraft(project: Project, draft: AuthoredDraft): Artifact {
+  const base = newArtifact(project, draft.kind);
+  switch (draft.kind) {
+    case "stakeholder":
+      return { ...base, title: draft.title, type: draft.type, body: draft.body } as Artifact;
+    case "need":
+      return {
+        ...base,
+        title: draft.title,
+        moscow: draft.moscow,
+        stakeholder: draft.stakeholder,
+        tags: draft.tags,
+        body: draft.body,
+      } as Artifact;
+    case "use-case":
+      return { ...base, title: draft.title, moscow: draft.moscow, trace: draft.trace, actors: draft.actors } as Artifact;
+    case "requirement":
+      return {
+        ...base,
+        moscow: draft.moscow,
+        ears: draft.ears,
+        condition: draft.condition,
+        subject: draft.subject,
+        action: draft.action,
+        object: draft.object,
+        constraint: draft.constraint,
+        trace: draft.trace,
+      } as Artifact;
+    case "test":
+      return { ...base, title: draft.title, file: draft.file, body: draft.body, trace: draft.trace } as Artifact;
+    case "decision":
+      return {
+        ...base,
+        title: draft.title,
+        context: draft.context,
+        concern: draft.concern,
+        decision: draft.decision,
+        alternatives: draft.alternatives,
+        criterion: draft.criterion,
+        downside: draft.downside,
+        trace: draft.trace,
+      } as Artifact;
+    case "glossary":
+      return { ...base, title: draft.title, aliases: draft.aliases, definition: draft.definition } as Artifact;
+  }
+}
+
 // Active file-watch teardown, kept at module scope so repeated init() calls
 // (React StrictMode mounts effects twice in dev) replace rather than stack
 // watchers.
@@ -503,6 +562,15 @@ export const useStore = create<AppState>((set, get) => {
       const next = withBucket(project, kind, [...bucketOf(project, kind), artifact]);
       set({ project: next, selection: { kind, id: artifact.id } });
       await storage.save(artifact);
+    },
+
+    createFromDraft: async (draft) => {
+      const { project, storage } = get();
+      const artifact = buildFromDraft(project, draft);
+      const next = withBucket(project, artifact.kind, [...bucketOf(project, artifact.kind), artifact]);
+      set({ project: next, selection: { kind: artifact.kind, id: artifact.id } });
+      await storage.save(artifact);
+      return { kind: artifact.kind, id: artifact.id };
     },
 
     addComponent: async (parentId) => {

@@ -40,6 +40,14 @@ export {
 } from "./formalizeAll";
 export { allArtifactIds, describeProject } from "./projectContext";
 export {
+  authorArtifact,
+  buildAuthoringPrompt,
+  validateAuthoring,
+  AUTHORABLE_KINDS,
+  type AuthorableKind,
+  type AuthoredDraft,
+} from "./authoring";
+export {
   buildCritiquePrompt,
   critiqueProject,
   validateCritique,
