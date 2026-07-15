@@ -254,6 +254,7 @@ export function DetailPanel() {
               onOpenUseCase={(id) => select("use-case", id)}
               onOpenRequirement={(id) => select("requirement", id)}
               onOpenDecision={(id) => select("decision", id)}
+              onOpenComponent={(id) => select("component", id)}
             />
           )}
           {artifact.kind === "flow" && (

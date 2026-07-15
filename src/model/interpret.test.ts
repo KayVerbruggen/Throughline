@@ -14,7 +14,7 @@ import {
 import { emptyProject, type Activity, type Component, type Flow, type Project, type Variable } from "../types";
 
 function component(id: string, title: string, activities: Activity[], variables: Variable[] = []): Component {
-  return { kind: "component", id, title, parent: "", description: "", activities, variables, decisions: [] };
+  return { kind: "component", id, title, parent: "", uses: [], description: "", activities, variables, decisions: [] };
 }
 function flow(id: string, main: string[], alternates: Flow["alternates"] = []): Flow {
   return { kind: "flow", id, title: id, main, alternates };

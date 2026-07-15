@@ -5,7 +5,7 @@ import { applyAssignment, evaluate, valuationKey, type Valuation } from "./evalu
 import { emptyProject, type Component, type Project, type Variable } from "../../types";
 
 function component(id: string, title: string, variables: Variable[]): Component {
-  return { kind: "component", id, title, parent: "", description: "", activities: [], variables, decisions: [] };
+  return { kind: "component", id, title, parent: "", uses: [], description: "", activities: [], variables, decisions: [] };
 }
 
 /** A "Chamber" component with an int count and an enum gate. */

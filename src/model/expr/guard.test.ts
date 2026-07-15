@@ -10,6 +10,7 @@ function project(): Project {
     id: "C-001",
     title: "Chamber",
     parent: "",
+    uses: [],
     description: "",
     activities: [],
     variables: [

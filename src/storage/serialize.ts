@@ -259,6 +259,7 @@ export function parseArtifact(kind: ArtifactKind, filename: string, raw: string)
         id,
         title: str(data.title, id),
         parent: str(data.parent),
+        uses: strArray(data.uses),
         description: body,
         activities: parseActivities(data.activities),
         variables: parseVariables(data.variables),
@@ -402,6 +403,7 @@ export function serializeArtifact(a: Artifact): string {
         title: a.title,
       };
       if (a.parent) data.parent = a.parent;
+      if (a.uses.length) data.uses = a.uses;
       if (a.activities.length) {
         data.activities = a.activities.map((act) => {
           const out: Record<string, unknown> = { id: act.id, label: act.label };

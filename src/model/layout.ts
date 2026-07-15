@@ -13,7 +13,7 @@
 // and deterministic: same project ⇒ same layout.
 // ---------------------------------------------------------------------------
 
-import { structureEdges } from "./behavior";
+import { staticEdges, structureEdges } from "./behavior";
 import { componentForest } from "./hierarchy";
 import type { Project } from "../types";
 
@@ -46,11 +46,19 @@ export interface ConnEdge {
   flows: string[];
 }
 
+/** An authored, directed static dependency (Component.uses): from → to. */
+export interface UsesEdge {
+  from: string;
+  to: string;
+  d: string;
+}
+
 export interface StructureLayout {
   nodes: LaidOutNode[];
   byId: Map<string, LaidOutNode>;
   hierEdges: HierEdge[];
   connEdges: ConnEdge[];
+  usesEdges: UsesEdge[];
   width: number;
   height: number;
 }
@@ -82,6 +90,50 @@ function buildConnEdges(project: Project, byId: Map<string, LaidOutNode>): ConnE
     const b = byId.get(e.b);
     if (!a || !b) continue;
     out.push({ a: e.a, b: e.b, flows: e.flows, d: connPath(a, b) });
+  }
+  return out;
+}
+
+/** Length of the dependency arrowhead, kept in sync with the view's marker. */
+export const USES_ARROW_LEN = 9;
+
+/**
+ * A directed arc from `from`'s centre to `to`'s perimeter (plus a small gap so
+ * the arrowhead sits just outside the target), gently bowed so multiple edges
+ * between the same pair don't perfectly overlap.
+ */
+function usesPath(from: LaidOutNode, to: LaidOutNode): string {
+  const ax = from.x + from.w / 2;
+  const ay = from.y + from.h / 2;
+  const tcx = to.x + to.w / 2;
+  const tcy = to.y + to.h / 2;
+  // Stop on the target rectangle's edge, pulled back by the arrowhead length.
+  const dx = tcx - ax;
+  const dy = tcy - ay;
+  const scale = Math.min(
+    (to.w / 2 + USES_ARROW_LEN) / (Math.abs(dx) || 1e-6),
+    (to.h / 2 + USES_ARROW_LEN) / (Math.abs(dy) || 1e-6),
+  );
+  const ex = tcx - dx * scale;
+  const ey = tcy - dy * scale;
+  const mx = (ax + ex) / 2;
+  const my = (ay + ey) / 2;
+  const ddx = ex - ax;
+  const ddy = ey - ay;
+  const len = Math.hypot(ddx, ddy) || 1;
+  const bow = Math.min(34, len * 0.14);
+  const cx = mx - (ddy / len) * bow;
+  const cy = my + (ddx / len) * bow;
+  return `M ${ax} ${ay} Q ${cx} ${cy} ${ex} ${ey}`;
+}
+
+function buildUsesEdges(project: Project, byId: Map<string, LaidOutNode>): UsesEdge[] {
+  const out: UsesEdge[] = [];
+  for (const e of staticEdges(project)) {
+    const from = byId.get(e.from);
+    const to = byId.get(e.to);
+    if (!from || !to) continue;
+    out.push({ from: e.from, to: e.to, d: usesPath(from, to) });
   }
   return out;
 }
@@ -192,7 +244,15 @@ export function layoutTree(project: Project, focusId = ""): StructureLayout {
   const totalW = roots.reduce((s, r) => s + subtreeW.get(r)!, 0) + T_H_GAP * Math.max(0, roots.length - 1);
   const width = T_PAD * 2 + Math.max(T_NODE_W, totalW);
   const height = T_PAD * 2 + (maxDepth + 1) * T_NODE_H + maxDepth * T_V_GAP;
-  return { nodes, byId, hierEdges, connEdges: buildConnEdges(project, byId), width, height };
+  return {
+    nodes,
+    byId,
+    hierEdges,
+    connEdges: buildConnEdges(project, byId),
+    usesEdges: buildUsesEdges(project, byId),
+    width,
+    height,
+  };
 }
 
 // --- nested layout ----------------------------------------------------------
@@ -300,6 +360,7 @@ export function layoutNested(project: Project, focusId = ""): StructureLayout {
     byId,
     hierEdges: [],
     connEdges: buildConnEdges(project, byId),
+    usesEdges: buildUsesEdges(project, byId),
     width: Math.max(N_PAD * 2 + N_LEAF_W, width),
     height,
   };

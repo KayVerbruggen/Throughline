@@ -242,6 +242,15 @@ export interface Component {
   parent: string;
   /** Optional free-text description. */
   description: string;
+  /**
+   * IDs of other components this one statically depends on ("uses" / imports /
+   * calls) — a directed, authored relationship, distinct from the undirected
+   * flow-derived connections. Unlike connections (which fall out of behaviour),
+   * a static dependency such as "the Model Core uses the Storage Layer" exists
+   * independently of any flow and so has to be recorded, not inferred. Self- and
+   * dangling references are tolerated on read (dropped). Empty by default.
+   */
+  uses: string[];
   /** The activities this component is responsible for. */
   activities: Activity[];
   /** Typed state this component owns, referenced by behaviour expressions. */

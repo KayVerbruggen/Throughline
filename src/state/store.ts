@@ -30,7 +30,13 @@ export interface Selection {
 // --- persisted per-view display preferences ---------------------------------
 
 export type StructureLayoutMode = "tree" | "nested";
-export type StructureShowMode = "hierarchy" | "connections" | "both";
+/**
+ * The single relationship overlaid on the always-present hierarchy backbone in
+ * the Structure view. Only one overlay shows at a time, so the flow-derived
+ * connections and the authored static dependencies never clutter the diagram
+ * together.
+ */
+export type StructureOverlay = "none" | "connections" | "dependencies";
 export type TraceColumnKind = "need" | "use-case" | "requirement" | "test";
 /** Which derived diagram the Behaviour view's right pane shows. */
 export type BehaviorDiagram = "activity" | "sequence";
@@ -45,7 +51,7 @@ export type BehaviorMode = "build" | "diagram" | "run";
  */
 export interface ViewPrefs {
   structureLayout: StructureLayoutMode;
-  structureShow: StructureShowMode;
+  structureOverlay: StructureOverlay;
   /** Which traceability columns are shown, in spine order. */
   traceColumns: TraceColumnKind[];
   /** Stakeholder id scoping the traceability grid, or null for all. */
@@ -62,7 +68,7 @@ const PREFS_KEY = "throughline.viewPrefs";
 
 const DEFAULT_PREFS: ViewPrefs = {
   structureLayout: "tree",
-  structureShow: "both",
+  structureOverlay: "connections",
   traceColumns: ["need", "use-case", "requirement", "test"],
   traceStakeholder: null,
   behaviorUseCase: null,
@@ -274,6 +280,7 @@ function newArtifact(project: Project, kind: ArtifactKind): Artifact {
         id,
         title: "Untitled component",
         parent: "",
+        uses: [],
         description: "",
         activities: [],
         variables: [],

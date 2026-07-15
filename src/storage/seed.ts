@@ -316,6 +316,7 @@ export function seedProject(): Project {
         id: "C-001",
         title: "Driver Interface",
         parent: "C-002",
+        uses: [],
         description:
           "The card reader, display and buttons the driver interacts with at the station.",
         created: "2026-07-01",
@@ -331,6 +332,7 @@ export function seedProject(): Project {
         id: "C-002",
         title: "EVSE Controller",
         parent: "",
+        uses: ["C-003", "C-004"],
         description:
           "The station's firmware controller: orchestrates authorization, energy delivery and safety monitoring.",
         created: "2026-07-01",
@@ -364,6 +366,7 @@ export function seedProject(): Project {
         id: "C-003",
         title: "Charge Point Management System",
         parent: "",
+        uses: [],
         description:
           "The back-office CPMS that authenticates cards and keeps the audit trail.",
         created: "2026-07-01",
@@ -386,6 +389,7 @@ export function seedProject(): Project {
         id: "C-004",
         title: "Vehicle BMS",
         parent: "",
+        uses: [],
         description: "The vehicle's battery management system, negotiated with over the connector.",
         created: "2026-07-01",
         activities: [{ id: "ACT-009", label: "Report target state of charge" }],

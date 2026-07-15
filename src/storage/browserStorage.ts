@@ -13,7 +13,7 @@ import { seedProject } from "./seed";
 //   .v7 — Design decisions + glossary terms (Component.decisions)
 //   .v8 — Inferred / low-confidence marker (example on N-004)
 //   .v9 — Tests (verification of requirements; T-… kind, tests/ folder)
-const KEY = "throughline.project.v9";
+const KEY = "throughline.project.v10";
 
 /**
  * Browser fallback: keeps the whole project as JSON in localStorage, seeded

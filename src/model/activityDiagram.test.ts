@@ -4,7 +4,7 @@ import { deriveActivityDiagram } from "./activityDiagram";
 import { emptyProject, type Activity, type Component, type Flow, type Project } from "../types";
 
 function component(id: string, activities: Activity[]): Component {
-  return { kind: "component", id, title: id, parent: "", description: "", activities, variables: [], decisions: [] };
+  return { kind: "component", id, title: id, parent: "", uses: [], description: "", activities, variables: [], decisions: [] };
 }
 function flow(id: string, main: string[], alternates: Flow["alternates"] = []): Flow {
   return { kind: "flow", id, title: id, main, alternates };

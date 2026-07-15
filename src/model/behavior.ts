@@ -110,6 +110,36 @@ export function structureEdges(project: Project): StructureEdge[] {
   return [...byKey.values()];
 }
 
+// --- authored static dependencies -------------------------------------------
+
+/** A directed static dependency: component `from` uses/depends on `to`. */
+export interface StaticEdge {
+  from: string;
+  to: string;
+}
+
+/**
+ * The authored static-dependency edges (Component.uses), unlike the flow-derived
+ * connections above. Directed and kept as authored — the ONE thing about
+ * structure that behaviour can't reveal. Self-references and dangling ids are
+ * dropped, and a duplicate `from → to` collapses to a single edge.
+ */
+export function staticEdges(project: Project): StaticEdge[] {
+  const ids = new Set(project.components.map((c) => c.id));
+  const seen = new Set<string>();
+  const out: StaticEdge[] = [];
+  for (const c of project.components) {
+    for (const dep of c.uses) {
+      if (dep === c.id || !ids.has(dep)) continue;
+      const key = `${c.id}|${dep}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ from: c.id, to: dep });
+    }
+  }
+  return out;
+}
+
 // --- component ⇄ spine (for the component detail panel) ---------------------
 
 /** Use cases whose flow includes an activity owned by this component. */

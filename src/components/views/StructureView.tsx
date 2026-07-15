@@ -5,7 +5,7 @@ import { layoutNested, layoutTree, type LaidOutNode, type StructureLayout } from
 import {
   useStore,
   type StructureLayoutMode as LayoutMode,
-  type StructureShowMode as ShowMode,
+  type StructureOverlay as Overlay,
 } from "../../state/store";
 import type { Component } from "../../types";
 import { Icon } from "../icons";
@@ -17,19 +17,20 @@ function hueOf(id: string): number {
   return h;
 }
 
-// Layout mode ("tree" | "nested") and show mode (which relationships to draw;
-// in nested mode containment always shows the hierarchy, so "hierarchy" simply
-// hides connection arcs) are persisted preferences — see ViewPrefs in the store.
+// Layout mode ("tree" | "nested") sets how nodes are placed; the hierarchy is
+// always the backbone (tree links / nested containment). A single overlay
+// ("none" | "connections" | "dependencies") is drawn on top — never two at once,
+// so the diagram can't clutter. Both are persisted — see ViewPrefs in the store.
 
 export function StructureView() {
   const project = useStore((s) => s.project);
   const select = useStore((s) => s.select);
   const addComponent = useStore((s) => s.addComponent);
   const mode = useStore((s) => s.prefs.structureLayout);
-  const show = useStore((s) => s.prefs.structureShow);
+  const overlay = useStore((s) => s.prefs.structureOverlay);
   const setPrefs = useStore((s) => s.setPrefs);
   const setMode = (structureLayout: LayoutMode) => setPrefs({ structureLayout });
-  const setShow = (structureShow: ShowMode) => setPrefs({ structureShow });
+  const setOverlay = (structureOverlay: Overlay) => setPrefs({ structureOverlay });
   const [hover, setHover] = useState<string | null>(null);
   // Drill-down root: "" = whole project, else show only this component + subtree.
   const [focus, setFocus] = useState<string>("");
@@ -48,20 +49,28 @@ export function StructureView() {
     return m;
   }, [project.components]);
 
-  const showHier = mode === "nested" || show !== "connections";
-  const showConn = show !== "hierarchy";
+  const showConn = overlay === "connections";
+  const showDeps = overlay === "dependencies";
 
-  // Which components are touched by the hovered node's connections — highlight
-  // them and the arcs between them, dim the rest.
+  // Which components are touched by the hovered node through the active overlay —
+  // highlight them and the arcs between them, dim the rest. Nothing to highlight
+  // when the overlay is "none".
   const activeIds = useMemo(() => {
-    if (!hover || !showConn) return null;
+    if (!hover || overlay === "none") return null;
     const set = new Set<string>([hover]);
-    for (const e of layout.connEdges) {
-      if (e.a === hover) set.add(e.b);
-      if (e.b === hover) set.add(e.a);
+    if (showConn) {
+      for (const e of layout.connEdges) {
+        if (e.a === hover) set.add(e.b);
+        if (e.b === hover) set.add(e.a);
+      }
+    } else {
+      for (const e of layout.usesEdges) {
+        if (e.from === hover) set.add(e.to);
+        if (e.to === hover) set.add(e.from);
+      }
     }
     return set;
-  }, [hover, layout.connEdges, showConn]);
+  }, [hover, overlay, showConn, layout.connEdges, layout.usesEdges]);
 
   if (project.components.length === 0) {
     return (
@@ -83,10 +92,10 @@ export function StructureView() {
       <Intro />
       <Controls
         mode={mode}
-        show={show}
+        overlay={overlay}
         focused={effFocus !== ""}
         onMode={setMode}
-        onShow={setShow}
+        onOverlay={setOverlay}
         onAdd={() => void addComponent(effFocus)}
       />
       <Breadcrumb chain={focusChain} byId={byId} onNavigate={setFocus} />
@@ -104,9 +113,10 @@ export function StructureView() {
             height={layout.height}
             style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
           >
-            {/* Hierarchy links — only meaningful in tree mode (nested shows it by
-                containment). Solid, arrow-headed, parent → child. */}
-            {mode === "tree" && showHier && (
+            {/* Hierarchy links — the always-on backbone in tree mode (nested
+                shows the same relationship by containment). Solid, arrow-headed,
+                parent → child. */}
+            {mode === "tree" && (
               <>
                 <defs>
                   {/* Base at the path endpoint (refX 0), tip 9px forward — the
@@ -160,6 +170,35 @@ export function StructureView() {
                   />
                 );
               })}
+
+            {/* Dependency arcs — authored static "uses" edges. Directed (arrow-
+                headed) + dotted, so they read as distinct from both the solid
+                hierarchy backbone and the dashed flow connections. */}
+            {showDeps && (
+              <>
+                <defs>
+                  <DepArrow id="tl-dep-arrow" fill="rgba(var(--line),.5)" />
+                  <DepArrow id="tl-dep-arrow-active" fill="var(--accent)" />
+                </defs>
+                {layout.usesEdges.map((e, i) => {
+                  const active = activeIds != null && activeIds.has(e.from) && activeIds.has(e.to);
+                  const dim = activeIds != null && !active;
+                  return (
+                    <path
+                      key={`u-${i}`}
+                      d={e.d}
+                      fill="none"
+                      stroke={active ? "var(--accent)" : "rgba(var(--line),.42)"}
+                      strokeWidth={active ? 2 : 1.4}
+                      strokeDasharray="1.5 4"
+                      strokeLinecap="round"
+                      markerEnd={`url(#tl-dep-arrow${active ? "-active" : ""})`}
+                      opacity={dim ? 0.2 : 1}
+                    />
+                  );
+                })}
+              </>
+            )}
           </svg>
 
           {layout.nodes.map((n) => {
@@ -195,13 +234,35 @@ export function StructureView() {
   );
 }
 
+/** Arrowhead for the directed dependency arcs. Geometry matches USES_ARROW_LEN
+ *  in layout.ts (the arc stops one arrow-length outside the target node, so the
+ *  arrow — pointing forward along the path into the node — lands on its edge). */
+function DepArrow({ id, fill }: { id: string; fill: string }) {
+  return (
+    <marker
+      id={id}
+      viewBox="0 0 10 10"
+      refX={0}
+      refY={5}
+      markerUnits="userSpaceOnUse"
+      markerWidth={10}
+      markerHeight={10}
+      orient="auto"
+    >
+      <path d="M0 1.5 L9 5 L0 8.5 z" fill={fill} />
+    </marker>
+  );
+}
+
 function Intro() {
   return (
-    <p style={{ margin: "0 0 16px", font: "400 13px/1.55 'IBM Plex Sans'", color: "var(--sub)", maxWidth: 660 }}>
-      Components arranged by hierarchy — the parts each one is composed of. Solid arrows show
-      containment (a component and its sub-components); dashed lines are connections, derived from
-      flows on the System Behavior page whenever two components’ activities run back-to-back. Add
-      sub-components in place with the “+” on any block.
+    <p style={{ margin: "0 0 16px", font: "400 13px/1.55 'IBM Plex Sans'", color: "var(--sub)", maxWidth: 680 }}>
+      Components arranged by hierarchy — the parts each one is composed of (solid arrows, or nesting).
+      Over that backbone you can overlay one relationship at a time: <em>Connections</em>, the dashed
+      links derived from flows whenever two components’ activities run back-to-back; or
+      <em> Dependencies</em>, the dotted directed arrows you author on a component (“Depends on”) to
+      record a static uses/imports edge that no flow would reveal. Add sub-components in place with the
+      “+” on any block.
     </p>
   );
 }
@@ -212,17 +273,17 @@ function Intro() {
 
 function Controls({
   mode,
-  show,
+  overlay,
   focused,
   onMode,
-  onShow,
+  onOverlay,
   onAdd,
 }: {
   mode: LayoutMode;
-  show: ShowMode;
+  overlay: Overlay;
   focused: boolean;
   onMode: (m: LayoutMode) => void;
-  onShow: (s: ShowMode) => void;
+  onOverlay: (o: Overlay) => void;
   onAdd: () => void;
 }) {
   return (
@@ -237,14 +298,14 @@ function Controls({
           ]}
         />
       </ControlGroup>
-      <ControlGroup label="Show">
-        <Segmented<ShowMode>
-          value={show}
-          onChange={onShow}
+      <ControlGroup label="Overlay">
+        <Segmented<Overlay>
+          value={overlay}
+          onChange={onOverlay}
           options={[
-            { value: "hierarchy", label: "Hierarchy" },
+            { value: "none", label: "None" },
             { value: "connections", label: "Connections" },
-            { value: "both", label: "Both" },
+            { value: "dependencies", label: "Dependencies" },
           ]}
         />
       </ControlGroup>

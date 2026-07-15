@@ -714,6 +714,7 @@ function StepRow({
         id,
         title: name.trim(),
         parent: "",
+        uses: [],
         description: "",
         activities: [],
         variables: [],

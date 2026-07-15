@@ -13,7 +13,7 @@ import {
 } from "../types";
 
 function component(id: string, title: string, activities: Activity[]): Component {
-  return { kind: "component", id, title, parent: "", description: "", activities, variables: [], decisions: [] };
+  return { kind: "component", id, title, parent: "", uses: [], description: "", activities, variables: [], decisions: [] };
 }
 function stakeholder(id: string, title: string): Stakeholder {
   return { kind: "stakeholder", id, title, type: "primary", body: "" };

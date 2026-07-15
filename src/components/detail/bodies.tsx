@@ -346,12 +346,14 @@ export function ComponentBody({
   onOpenUseCase,
   onOpenRequirement,
   onOpenDecision,
+  onOpenComponent,
 }: {
   component: Component;
   update: Update<Component>;
   onOpenUseCase: (id: string) => void;
   onOpenRequirement: (id: string) => void;
   onOpenDecision: (id: string) => void;
+  onOpenComponent: (id: string) => void;
 }) {
   const project = useStore((s) => s.project);
   const ucs = useMemo(() => useCasesForComponent(project, component), [project, component]);
@@ -378,6 +380,18 @@ export function ComponentBody({
           value={component.parent}
           onChange={(v) => update({ parent: v })}
           options={parentOptions}
+        />
+      </Section>
+
+      <Section mb={22}>
+        <FieldLabel hint="(static dependencies — uses / imports / calls)">Depends on</FieldLabel>
+        <TraceEditor
+          trace={component.uses}
+          candidates={project.components.filter((c) => c.id !== component.id)}
+          icon="structure"
+          emptyLabel="No static dependencies declared yet."
+          onOpen={onOpenComponent}
+          onChange={(uses) => update({ uses })}
         />
       </Section>
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { activityAdjacencies, structureEdges } from "./behavior";
+import { activityAdjacencies, staticEdges, structureEdges } from "./behavior";
 import { emptyProject, type Activity, type Component, type Flow, type Project } from "../types";
 
-function component(id: string, activities: Activity[]): Component {
-  return { kind: "component", id, title: id, parent: "", description: "", activities, variables: [], decisions: [] };
+function component(id: string, activities: Activity[], uses: string[] = []): Component {
+  return { kind: "component", id, title: id, parent: "", uses, description: "", activities, variables: [], decisions: [] };
 }
 function flow(id: string, main: string[], alternates: Flow["alternates"] = []): Flow {
   return { kind: "flow", id, title: id, main, alternates };
@@ -63,5 +63,35 @@ describe("structure connections are derived from flow adjacency (R-004)", () => 
     // main: 001→002, 002→003; alt: entry 001→009, rejoin 009→003.
     expect(pairs).toContainEqual(["ACT-001", "ACT-009"]);
     expect(pairs).toContainEqual(["ACT-009", "ACT-003"]);
+  });
+});
+
+describe("static dependency edges are authored and directed", () => {
+  const usesKey = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
+
+  it("emits one directed edge per Component.uses entry", () => {
+    const p = emptyProject();
+    p.components = [
+      component("C-001", [], ["C-002", "C-003"]),
+      component("C-002", []),
+      component("C-003", []),
+    ];
+    expect(staticEdges(p).map(usesKey).sort()).toEqual(["C-001->C-002", "C-001->C-003"]);
+  });
+
+  it("keeps direction (from → to is not symmetric)", () => {
+    const p = emptyProject();
+    p.components = [component("C-001", [], ["C-002"]), component("C-002", [])];
+    const [edge] = staticEdges(p);
+    expect(edge).toEqual({ from: "C-001", to: "C-002" });
+  });
+
+  it("drops self-references and dangling ids, and dedupes", () => {
+    const p = emptyProject();
+    p.components = [
+      component("C-001", [], ["C-001", "C-404", "C-002", "C-002"]),
+      component("C-002", []),
+    ];
+    expect(staticEdges(p).map(usesKey)).toEqual(["C-001->C-002"]);
   });
 });
