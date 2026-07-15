@@ -158,62 +158,81 @@ export function FlowDiagram({ flow, interactive = true }: { flow: Flow; interact
       )
     : new Set<string>();
 
-  return (
-    <div>
-      {interactive ? (
-        <>
-          <RunBar
-            running={run != null}
-            playing={playing}
-            done={run?.exec.done ?? false}
-            onRun={start}
-            onPlay={() => setPlaying((p) => !p)}
-            onStep={() => step()}
-            onReset={reset}
-            onExit={exit}
+  const graph = (
+    <div style={{ position: "relative", width: diagram.width, height: diagram.height, minWidth: "100%" }}>
+      <svg
+        width={diagram.width}
+        height={diagram.height}
+        style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
+      >
+        <defs>
+          <ArrowMarker id="diagram-arrow-seq" fill="rgba(var(--line),.5)" />
+          <ArrowMarker id="diagram-arrow-alt" fill={ALT_ACCENT} />
+          <ArrowMarker id="diagram-arrow-active" fill="var(--accent)" />
+        </defs>
+        {diagram.edges.map((e, i) => (
+          <Edge
+            key={`${e.from}-${e.to}-${i}`}
+            edge={e}
+            active={!!activeEdge && activeEdge.from === e.from && activeEdge.to === e.to}
           />
+        ))}
+      </svg>
 
-          {run ? (
-            <RunState
-              exec={run.exec}
-              choices={choices}
-              auto={auto}
-              changed={changed}
-              onChoose={(t) => step(t)}
-            />
-          ) : (
-            <SetupState rows={setupRows} onEdit={editVar} />
-          )}
-        </>
-      ) : null}
+      {diagram.edges.map((e, i) => (e.label ? <EdgeLabel key={`l-${i}`} edge={e} /> : null))}
 
-      <div style={{ overflow: "auto", paddingBottom: 12 }}>
-        <div style={{ position: "relative", width: diagram.width, height: diagram.height, minWidth: "100%" }}>
-          <svg
-            width={diagram.width}
-            height={diagram.height}
-            style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "visible" }}
-          >
-            <defs>
-              <ArrowMarker id="diagram-arrow-seq" fill="rgba(var(--line),.5)" />
-              <ArrowMarker id="diagram-arrow-alt" fill={ALT_ACCENT} />
-              <ArrowMarker id="diagram-arrow-active" fill="var(--accent)" />
-            </defs>
-            {diagram.edges.map((e, i) => (
-              <Edge
-                key={`${e.from}-${e.to}-${i}`}
-                edge={e}
-                active={!!activeEdge && activeEdge.from === e.from && activeEdge.to === e.to}
-              />
-            ))}
-          </svg>
+      {diagram.nodes.map((n) => (
+        <Node key={n.id} node={n} current={n.id === currentId} dim={run != null && n.id !== currentId} />
+      ))}
+    </div>
+  );
 
-          {diagram.edges.map((e, i) => (e.label ? <EdgeLabel key={`l-${i}`} edge={e} /> : null))}
+  // Diagram mode: just the graph.
+  if (!interactive) {
+    return <div style={{ overflow: "auto", paddingBottom: 12 }}>{graph}</div>;
+  }
 
-          {diagram.nodes.map((n) => (
-            <Node key={n.id} node={n} current={n.id === currentId} dim={run != null && n.id !== currentId} />
-          ))}
-        </div>
+  // Run mode: the activity diagram is a tall, narrow vertical spine, so the run
+  // controls and state table sit in a sticky column *beside* it rather than
+  // stacked above — that fills the space to the diagram's right and keeps the
+  // starting-state knobs in view while the token walks down a long flow.
+  return (
+    <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ flex: "1 1 440px", minWidth: 0, overflow: "auto", paddingBottom: 12 }}>{graph}</div>
+      <div
+        style={{
+          flex: "1 1 360px",
+          minWidth: 300,
+          maxWidth: 560,
+          position: "sticky",
+          top: 4,
+          alignSelf: "flex-start",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <RunBar
+          running={run != null}
+          playing={playing}
+          done={run?.exec.done ?? false}
+          onRun={start}
+          onPlay={() => setPlaying((p) => !p)}
+          onStep={() => step()}
+          onReset={reset}
+          onExit={exit}
+        />
+
+        {run ? (
+          <RunState
+            exec={run.exec}
+            choices={choices}
+            auto={auto}
+            changed={changed}
+            onChoose={(t) => step(t)}
+          />
+        ) : (
+          <SetupState rows={setupRows} onEdit={editVar} />
+        )}
       </div>
     </div>
   );
