@@ -1,8 +1,9 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { createLlmClient, critiqueProject, type Finding, type Severity } from "../../llm";
 import { composeEars } from "../../model/ears";
 import { chainOf, needWarning, requirementWarning, testWarning, traceEdges, type TraceEdge } from "../../model/trace";
-import { useStore } from "../../state/store";
+import { useStore, type ViewId } from "../../state/store";
 import type { ArtifactKind, Project, SpineArtifact, Test } from "../../types";
 import { EARS_LABEL, EarsBadge, MoscowBadge, StatusBadge, TestResultBadge } from "../badges";
 import { Icon, type IconName } from "../icons";
@@ -68,6 +69,236 @@ function stakeholderScope(project: Project, stakeholderId: string | null): Set<s
     if (t.trace.some((id) => reqIds.has(id))) scope.add(t.id);
   }
   return scope;
+}
+
+// ---------------------------------------------------------------------------
+// Model critic — a read-only AI pass over the whole project (see llm/critique.ts)
+// flagging judgement-level issues the mechanical trace warnings can't. Findings
+// carry references to real artifacts, rendered as jump-links that navigate to
+// the owning view and open the artifact. Dismissible per finding and as a whole.
+// ---------------------------------------------------------------------------
+
+const CRITIC_ACCENT = "oklch(0.52 0.11 62)";
+
+const VIEW_FOR_KIND: Record<ArtifactKind, ViewId> = {
+  stakeholder: "stakeholders",
+  need: "needs",
+  "use-case": "use-cases",
+  requirement: "requirements",
+  component: "structure",
+  flow: "behavior",
+  decision: "decisions",
+  glossary: "glossary",
+  test: "tests",
+};
+
+/** Resolve an artifact id to its kind (and so its owning view), or null. */
+function locate(project: Project, id: string): ArtifactKind | null {
+  const buckets: [ArtifactKind, { id: string }[]][] = [
+    ["stakeholder", project.stakeholders],
+    ["need", project.needs],
+    ["use-case", project.useCases],
+    ["requirement", project.requirements],
+    ["test", project.tests],
+    ["component", project.components],
+    ["flow", project.flows],
+    ["decision", project.decisions],
+    ["glossary", project.glossary],
+  ];
+  for (const [kind, list] of buckets) if (list.some((a) => a.id === id)) return kind;
+  return null;
+}
+
+const SEVERITY_STYLE: Record<Severity, { label: string; bg: string; ink: string }> = {
+  high: { label: "High", bg: "var(--warn-bg, rgba(200,60,60,.12))", ink: "var(--warn-ink)" },
+  medium: { label: "Medium", bg: "rgba(180,120,40,.14)", ink: "oklch(0.58 0.12 62)" },
+  low: { label: "Low", bg: "rgba(var(--line),.1)", ink: "var(--ter)" },
+};
+
+function ModelCritic({ project }: { project: Project }) {
+  const select = useStore((s) => s.select);
+  const setView = useStore((s) => s.setView);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [findings, setFindings] = useState<Finding[] | null>(null);
+
+  const hasArtifacts =
+    project.needs.length + project.useCases.length + project.requirements.length + project.components.length > 0;
+  if (!hasArtifacts && !findings && !error && !busy) return null;
+
+  const run = async () => {
+    setError(null);
+    setFindings(null);
+    const client = createLlmClient();
+    if (!client.isConfigured()) {
+      setError("Add an Anthropic API key in Settings (the gear, top-right) to use the model review.");
+      return;
+    }
+    setBusy(true);
+    const r = await critiqueProject(client, project);
+    setBusy(false);
+    if (r.ok) setFindings(r.value);
+    else setError(r.error);
+  };
+
+  const jumpTo = (id: string) => {
+    const kind = locate(project, id);
+    if (!kind) return;
+    setView(VIEW_FOR_KIND[kind]);
+    select(kind, id);
+  };
+
+  const dismissAt = (i: number) => setFindings((prev) => (prev ? prev.filter((_, j) => j !== i) : prev));
+
+  return (
+    <div style={{ margin: "0 0 22px" }}>
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={busy}
+        title="Ask the model to review the whole project for judgement-level issues"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 12px",
+          border: `1px solid ${CRITIC_ACCENT}`,
+          borderRadius: 7,
+          background: "transparent",
+          color: CRITIC_ACCENT,
+          font: "500 12.5px 'IBM Plex Sans'",
+          cursor: busy ? "default" : "pointer",
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {busy ? "Reviewing the model…" : "✨ Review model"}
+      </button>
+
+      {error ? (
+        <div style={{ marginTop: 8, font: "400 11.5px/1.45 'IBM Plex Sans'", color: "var(--warn-ink)" }}>{error}</div>
+      ) : null}
+
+      {findings ? (
+        <div
+          style={{
+            marginTop: 10,
+            border: `1px solid ${CRITIC_ACCENT}`,
+            borderRadius: 10,
+            background: "var(--surface)",
+            padding: "14px 16px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: findings.length ? 12 : 0 }}>
+            <div style={{ font: "600 11px 'IBM Plex Mono'", letterSpacing: ".06em", textTransform: "uppercase", color: CRITIC_ACCENT }}>
+              Model review · {findings.length} {findings.length === 1 ? "finding" : "findings"}
+            </div>
+            <div style={{ flex: 1 }} />
+            <button
+              type="button"
+              onClick={() => setFindings(null)}
+              style={{
+                padding: "4px 10px",
+                border: "1px solid rgba(var(--line),.14)",
+                borderRadius: 6,
+                background: "transparent",
+                color: "var(--sub)",
+                font: "500 11.5px 'IBM Plex Sans'",
+                cursor: "pointer",
+              }}
+            >
+              Dismiss all
+            </button>
+          </div>
+
+          {findings.length === 0 ? (
+            <div style={{ font: "400 12.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
+              No substantive issues found — the model reads as coherent.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {findings.map((f, i) => {
+                const sev = SEVERITY_STYLE[f.severity];
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      border: "1px solid rgba(var(--line),.1)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      background: "var(--surface2)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span
+                        style={{
+                          font: "600 9.5px 'IBM Plex Mono'",
+                          letterSpacing: ".06em",
+                          textTransform: "uppercase",
+                          color: sev.ink,
+                          background: sev.bg,
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        {sev.label}
+                      </span>
+                      <span style={{ font: "400 10px 'IBM Plex Mono'", color: "var(--ter)" }}>{f.category}</span>
+                      <div style={{ flex: 1 }} />
+                      <button
+                        type="button"
+                        onClick={() => dismissAt(i)}
+                        title="Dismiss this finding"
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "var(--faint)",
+                          cursor: "pointer",
+                          font: "400 14px 'IBM Plex Sans'",
+                          lineHeight: 1,
+                          padding: 0,
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div style={{ font: "500 13px 'IBM Plex Sans'", color: "var(--ink)", marginBottom: f.detail ? 3 : 0 }}>
+                      {f.title}
+                    </div>
+                    {f.detail ? (
+                      <div style={{ font: "400 12px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>{f.detail}</div>
+                    ) : null}
+                    {f.refs.length ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+                        {f.refs.map((id) => (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => jumpTo(id)}
+                            title={`Go to ${id}`}
+                            style={{
+                              font: "500 10.5px 'IBM Plex Mono'",
+                              color: "var(--accent-ink)",
+                              background: "var(--accent-bg)",
+                              border: "none",
+                              padding: "2px 7px",
+                              borderRadius: 5,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {id}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function TraceabilityView() {
@@ -260,6 +491,8 @@ export function TraceabilityView() {
           </div>
         )}
       </div>
+
+      <ModelCritic project={project} />
 
       {shownColumns.length === 0 ? null : (
         <div
