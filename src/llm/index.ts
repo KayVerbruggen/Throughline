@@ -3,6 +3,14 @@ import type { LlmClient } from "./types";
 
 export type { CompletionRequest, CompletionResult, LlmClient } from "./types";
 export { completeJson, extractJson, type JsonResult } from "./json";
+export { describeComponentsForGuard, formatVarType } from "./context";
+export {
+  buildGuardPrompt,
+  suggestGuard,
+  validateGuardSuggestion,
+  type GuardSuggestion,
+  type SuggestedVariable,
+} from "./suggestGuard";
 export type { LlmConfig } from "./config";
 export { DEFAULT_MODEL, MODEL_OPTIONS, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
 
