@@ -121,9 +121,19 @@ validate-before-apply because the validators already exist.
   message so one bad item drives the retry, drops already-formal items, and prunes
   unreferenced proposed variables. A "✨ Formalize flow" button + review panel in the
   Behaviour view shows the plan before `applyFormalization` applies it atomically.
-  - **Next: "Formalize all use cases"** — loop flows sequentially, threading
-    accepted variables forward (via the same `applyFormalization`) so later flows
-    reuse the state earlier ones introduced.
+- **Whole-project "Formalize all use cases".** *(Shipped — [`llm/formalizeAll.ts`](src/llm/formalizeAll.ts).)*
+  `formalizeAllFlows` loops every use case's flow **sequentially**, threading an
+  evolving in-memory project through `formalizeFlow` + `applyFormalization` so a
+  later flow is formalized against the state earlier flows introduced and reuses
+  it rather than minting a duplicate — the reason the pass can't fan out in
+  parallel. Best-effort (a failing flow is recorded and the pass continues) and
+  skips flows with nothing pending, including those whose shared activities an
+  earlier flow already formalized. A "✨ Formalize all use cases" button + batch
+  review (one section per flow, or its error) shows the whole plan; a single
+  Accept-all persists the accumulated touched artifacts — all-or-nothing, since
+  threaded plans interdepend. Nothing is written until accept.
+  - **Next: a model critic (E) and NL authoring (F)**, then the reverse-engineering
+    and prototype tracks (B/C).
 - **Slot-filling micro-suggestions**, each returning JSON validated before apply:
   EARS requirement slots from a plain sentence (compose via `model/ears.ts`);
   decision Y-statement slots from a paragraph; a glossary definition from a term;
