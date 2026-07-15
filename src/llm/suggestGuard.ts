@@ -1,21 +1,11 @@
-import { analyzeGuard, resolveComponent } from "../model/expr";
-import type { Project, VarType } from "../types";
+import { analyzeGuard } from "../model/expr";
+import type { Project } from "../types";
 import { describeComponentsForGuard, formatVarType } from "./context";
 import { completeJson, type JsonResult } from "./json";
 import type { CompletionRequest, LlmClient } from "./types";
+import { augmentProject, parseNewVariables, type SuggestedVariable } from "./variables";
 
-/**
- * A new component variable the suggested guard needs but the model doesn't have
- * yet. `componentId` is already resolved from the model's handle. No `id` — the
- * apply step mints a real `VAR-…` id; validation only needs the name and type.
- */
-export interface SuggestedVariable {
-  componentId: string;
-  name: string;
-  type: VarType;
-  description?: string;
-  initial?: string;
-}
+export type { SuggestedVariable };
 
 export interface GuardSuggestion {
   /** The proposed guard, already type-checked against the project + `newVariables`. */
@@ -63,28 +53,6 @@ export function buildGuardPrompt(
   return { system: SYSTEM, prompt };
 }
 
-const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/** Parse and validate the model's variable `type`, throwing a usable message on any problem. */
-function parseVarType(raw: unknown, where: string): VarType {
-  if (!raw || typeof raw !== "object") throw new Error(`${where}: "type" is missing`);
-  const t = raw as { kind?: unknown; min?: unknown; max?: unknown; values?: unknown };
-  if (t.kind === "bool") return { kind: "bool" };
-  if (t.kind === "int") {
-    const out: VarType = { kind: "int" };
-    if (typeof t.min === "number") out.min = t.min;
-    if (typeof t.max === "number") out.max = t.max;
-    return out;
-  }
-  if (t.kind === "enum") {
-    if (!Array.isArray(t.values) || t.values.length === 0 || !t.values.every((v) => typeof v === "string")) {
-      throw new Error(`${where}: enum "type" needs a non-empty list of string values`);
-    }
-    return { kind: "enum", values: t.values as string[] };
-  }
-  throw new Error(`${where}: "type.kind" must be "bool", "int", or "enum"`);
-}
-
 /**
  * Validate a raw guard-suggestion object against the project and return a
  * resolved `GuardSuggestion`. Throws (with a message the model can act on) when
@@ -101,31 +69,7 @@ export function validateGuardSuggestion(project: Project, raw: unknown): GuardSu
   }
   const guard = obj.guard.trim();
 
-  const rawVars = obj.newVariables ?? [];
-  if (!Array.isArray(rawVars)) throw new Error('"newVariables" must be an array (use [] for none).');
-
-  const newVariables: SuggestedVariable[] = [];
-  for (const rv of rawVars) {
-    if (!rv || typeof rv !== "object") throw new Error("Each new variable must be an object.");
-    const v = rv as { component?: unknown; name?: unknown; type?: unknown; description?: unknown; initial?: unknown };
-
-    if (typeof v.component !== "string") throw new Error('Each new variable needs a "component" handle.');
-    const component = resolveComponent(project, v.component);
-    if (!component) throw new Error(`Unknown component handle "${v.component}".`);
-
-    if (typeof v.name !== "string" || !IDENT.test(v.name)) {
-      throw new Error(`Invalid variable name ${JSON.stringify(v.name)} — use a plain identifier.`);
-    }
-    // If the component already has this variable, it isn't new — drop it and let
-    // the guard type-check against the existing declaration.
-    if (component.variables.some((existing) => existing.name === v.name)) continue;
-
-    const type = parseVarType(v.type, `variable "${v.name}"`);
-    const sv: SuggestedVariable = { componentId: component.id, name: v.name, type };
-    if (typeof v.description === "string" && v.description.trim()) sv.description = v.description.trim();
-    if (typeof v.initial === "string" && v.initial.trim()) sv.initial = v.initial.trim();
-    newVariables.push(sv);
-  }
+  const newVariables = parseNewVariables(project, obj.newVariables);
 
   // Type-check the guard against the project *including* the proposed variables.
   const augmented = augmentProject(project, newVariables);
@@ -137,18 +81,6 @@ export function validateGuardSuggestion(project: Project, raw: unknown): GuardSu
     suggestion.explanation = obj.explanation.trim();
   }
   return suggestion;
-}
-
-/** Clone the project with the proposed variables added (placeholder ids) for type-checking. */
-function augmentProject(project: Project, vars: SuggestedVariable[]): Project {
-  if (vars.length === 0) return project;
-  const components = project.components.map((c) => {
-    const mine = vars.filter((v) => v.componentId === c.id);
-    if (mine.length === 0) return c;
-    const added = mine.map((v, i) => ({ id: `VAR-NEW-${i}`, name: v.name, type: v.type }));
-    return { ...c, variables: [...c.variables, ...added] };
-  });
-  return { ...project, components };
 }
 
 /**

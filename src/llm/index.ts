@@ -5,12 +5,23 @@ export type { CompletionRequest, CompletionResult, LlmClient } from "./types";
 export { completeJson, extractJson, type JsonResult } from "./json";
 export { describeComponentsForGuard, formatVarType } from "./context";
 export {
+  augmentProject,
+  parseNewVariables,
+  parseVarType,
+  type SuggestedVariable,
+} from "./variables";
+export {
   buildGuardPrompt,
   suggestGuard,
   validateGuardSuggestion,
   type GuardSuggestion,
-  type SuggestedVariable,
 } from "./suggestGuard";
+export {
+  buildEffectPrompt,
+  suggestEffects,
+  validateEffectSuggestion,
+  type EffectSuggestion,
+} from "./suggestEffects";
 export type { LlmConfig } from "./config";
 export { DEFAULT_MODEL, MODEL_OPTIONS, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
 
