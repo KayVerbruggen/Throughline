@@ -230,10 +230,16 @@ agent too). The division of labour:
   category, title, detail, refs) validated leniently (advisory) but with dead refs
   dropped so jump-links resolve. Output = a dismissible findings list with
   jump-links, as a "✨ Review model" button in the Traceability view.
-- **F. Natural-language authoring.** One box: "Add a requirement that the lock must
-  equalise within 90 s, tied to the filling use case." → drafts the right artifact
-  kind with slots + trace → validate → preview → accept. A faster on-ramp than the
-  forms; generalises B's per-artifact generation to interactive single creates.
+- **F. Natural-language authoring.** *(Shipped — [`llm/authoring.ts`](src/llm/authoring.ts).)*
+  A global "✨ Draft" box in the top bar: "add a requirement that the lock equalises
+  within 90 s, for the filling use case" → the model picks the kind and fills its
+  slots → `validateAuthoring` normalizes them into a typed `AuthoredDraft`, resolves
+  trace/stakeholder refs by id or title (unmatched ones surfaced, not invented), and
+  composes the preview → the draft is shown → Create calls the store's
+  `createFromDraft` and navigates to the new artifact. Covers the authorable kinds
+  (spine + decision + glossary + stakeholder); components/flows stay structural.
+  A faster on-ramp than the forms; generalises B's per-artifact generation to
+  interactive single creates.
 - **G. Ask-the-model (semantic Q&A).** "Which requirements depend on the CPMS being
   online?" → answer with artifact links, over the project context. Read-only.
 - **H. Glossary & naming assistant.** Detect undefined domain terms used in bodies
