@@ -220,13 +220,16 @@ agent too). The division of labour:
 
 ## Additional use cases worth adding
 
-- **E. Model critic / gap review — strong candidate to do early.** A read-only AI
-  pass over the whole project flagging what a mechanical check can't: vague
-  requirements, needs with no use case, requirements with no test, contradictory
-  guards, load-bearing choices with no decision, undefined glossary terms,
-  components orphaned from traceability. Complements `validate.ts` (mechanical)
-  with judgement. Output = a dismissible findings list with jump-links; reuses the
-  coverage computations in [`trace.ts`](src/model/trace.ts). Low risk, high value.
+- **E. Model critic / gap review.** *(Shipped — [`llm/critique.ts`](src/llm/critique.ts).)*
+  A read-only AI pass over the whole project flagging what a mechanical check can't:
+  vague/untestable requirements, needs no use case addresses, conflicting or
+  redundant artifacts, load-bearing choices with no decision, undefined glossary
+  terms. `describeProject` ([`llm/projectContext.ts`](src/llm/projectContext.ts))
+  renders the id-tagged whole-project summary (with the coverage flags from
+  [`trace.ts`](src/model/trace.ts)); the model returns `Finding`s (severity,
+  category, title, detail, refs) validated leniently (advisory) but with dead refs
+  dropped so jump-links resolve. Output = a dismissible findings list with
+  jump-links, as a "✨ Review model" button in the Traceability view.
 - **F. Natural-language authoring.** One box: "Add a requirement that the lock must
   equalise within 90 s, tied to the filling use case." → drafts the right artifact
   kind with slots + trace → validate → preview → accept. A faster on-ramp than the
