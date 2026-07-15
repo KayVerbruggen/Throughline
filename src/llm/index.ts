@@ -22,6 +22,17 @@ export {
   validateEffectSuggestion,
   type EffectSuggestion,
 } from "./suggestEffects";
+export {
+  applyFormalization,
+  buildFormalizePrompt,
+  formalizeFlow,
+  pendingFormalization,
+  validateFormalization,
+  type FormalizationPlan,
+  type FormalizationTargets,
+  type FormalizedEffects,
+  type FormalizedGuard,
+} from "./formalizeFlow";
 export type { LlmConfig } from "./config";
 export { DEFAULT_MODEL, MODEL_OPTIONS, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
 
