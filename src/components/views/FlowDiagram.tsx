@@ -12,12 +12,15 @@ import {
   autoStep,
   autoTransition,
   initExec,
+  initialValuation,
   isDecisionPoint,
   outgoing,
   variableRows,
   type ExecState,
   type Transition,
   type Valuation,
+  type Value,
+  type VariableRow,
 } from "../../model/interpret";
 import { useStore } from "../../state/store";
 import type { Flow } from "../../types";
@@ -57,12 +60,26 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
   const [run, setRun] = useState<RunHandle | null>(null);
   const [playing, setPlaying] = useState(false);
 
+  // Ephemeral starting values, keyed canonically, that override each variable's
+  // declared `initial` for this run only — the knob that lets a reader flip
+  // `dirty` to true and drive the other branch without editing the model.
+  const [overrides, setOverrides] = useState<Valuation>(new Map());
+
   // Editing the flow's structure invalidates a running token (node ids shift),
-  // so end any run when the flow changes.
+  // so end any run when the flow changes; drop the sim overrides with it.
   useEffect(() => {
     setRun(null);
     setPlaying(false);
+    setOverrides(new Map());
   }, [flow]);
+
+  // The starting valuation the setup table shows: declared initials, overlaid
+  // with whatever the reader has changed.
+  const setupRows = useMemo<VariableRow[]>(() => {
+    const val = initialValuation(project);
+    for (const [k, v] of overrides) val.set(k, v);
+    return variableRows(project, val);
+  }, [project, overrides]);
 
   const choices = useMemo<Transition[]>(
     () => (run && !run.exec.done ? outgoing(project, flow, run.exec) : []),
@@ -70,7 +87,9 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
   );
   const auto = useMemo(() => autoTransition(choices), [choices]);
 
-  const start = () => setRun({ exec: initExec(project, flow), prev: null, prevVal: null });
+  const start = () => setRun({ exec: initExec(project, flow, overrides), prev: null, prevVal: null });
+  const editVar = (key: string, value: Value) =>
+    setOverrides((m) => new Map(m).set(key, value));
   const step = (t?: Transition) => {
     setRun((r) => {
       if (!r || r.exec.done) return r;
@@ -81,7 +100,7 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
   };
   const reset = () => {
     setPlaying(false);
-    setRun({ exec: initExec(project, flow), prev: null, prevVal: null });
+    setRun({ exec: initExec(project, flow, overrides), prev: null, prevVal: null });
   };
   const exit = () => {
     setPlaying(false);
@@ -156,7 +175,9 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
           changed={changed}
           onChoose={(t) => step(t)}
         />
-      ) : null}
+      ) : (
+        <SetupState rows={setupRows} onEdit={editVar} />
+      )}
 
       <div style={{ overflow: "auto", paddingBottom: 12 }}>
         <div style={{ position: "relative", width: diagram.width, height: diagram.height, minWidth: "100%" }}>
@@ -300,34 +321,8 @@ function RunState({
         gap: 10,
       }}
     >
-      {/* Live valuation. */}
-      {rows.length > 0 ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {rows.map((r) => {
-            const hot = changed.has(r.key);
-            return (
-              <span
-                key={r.key}
-                title={`${r.componentTitle} · ${r.typeLabel}`}
-                style={{
-                  font: "400 11px 'IBM Plex Mono'",
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  background: hot ? "var(--accent-bg)" : "var(--surface)",
-                  border: `1px solid ${hot ? "var(--accent)" : "rgba(var(--line),.12)"}`,
-                  color: hot ? "var(--accent-ink)" : "var(--sub)",
-                }}
-              >
-                {r.name} = <b style={{ color: hot ? "var(--accent-ink)" : "var(--ink)" }}>{String(r.value)}</b>
-              </span>
-            );
-          })}
-        </div>
-      ) : (
-        <span style={{ font: "400 11px 'IBM Plex Sans'", color: "var(--faint)" }}>
-          No component variables yet — add some to see state change as the token moves.
-        </span>
-      )}
+      {/* Live valuation: the current value of every variable, changed ones lit. */}
+      <VariableTable rows={rows} changed={changed} />
 
       {/* Branch choices when the token is at a decision with more than one path. */}
       {!exec.done && choices.length > 1 ? (
@@ -396,6 +391,168 @@ function RunState({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// Before a run: the same variable table, but the values are editable so a
+// reader can set up a scenario (e.g. flip `dirty` to true) and watch which
+// branch it drives. These edits seed the run and are thrown away on Exit.
+function SetupState({
+  rows,
+  onEdit,
+}: {
+  rows: VariableRow[];
+  onEdit: (key: string, value: Value) => void;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div
+      style={{
+        border: "1px solid rgba(var(--line),.1)",
+        borderRadius: 10,
+        background: "var(--surface2)",
+        padding: "11px 13px",
+        marginBottom: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <span style={{ font: "500 9.5px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)" }}>
+        Starting state · edit to simulate a run
+      </span>
+      <VariableTable rows={rows} onEdit={onEdit} />
+    </div>
+  );
+}
+
+// A row per variable — name, its prose description, and the value. With `onEdit`
+// the value is an input (setup); otherwise it's read-only and lights up when it
+// changed on the last step. Shared by the setup panel and the live run panel.
+function VariableTable({
+  rows,
+  changed,
+  onEdit,
+}: {
+  rows: VariableRow[];
+  changed?: Set<string>;
+  onEdit?: (key: string, value: Value) => void;
+}) {
+  const cell: React.CSSProperties = {
+    padding: "5px 8px",
+    borderTop: "1px solid rgba(var(--line),.08)",
+    verticalAlign: "top",
+    textAlign: "left",
+  };
+  const head: React.CSSProperties = {
+    padding: "0 8px 4px",
+    font: "500 9.5px 'IBM Plex Mono'",
+    letterSpacing: ".06em",
+    textTransform: "uppercase",
+    color: "var(--ter)",
+    textAlign: "left",
+    fontWeight: 500,
+  };
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <thead>
+        <tr>
+          <th style={head}>Variable</th>
+          <th style={head}>Description</th>
+          <th style={{ ...head, width: onEdit ? 120 : 90 }}>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => {
+          const hot = changed?.has(r.key) ?? false;
+          return (
+            <tr key={r.key}>
+              <td style={cell}>
+                <span style={{ font: "500 12px 'IBM Plex Mono'", color: "var(--ink)" }}>{r.name}</span>
+                <span
+                  title={r.typeLabel}
+                  style={{ display: "block", font: "400 10px 'IBM Plex Sans'", color: "var(--faint)" }}
+                >
+                  {r.componentTitle} · {r.typeLabel}
+                </span>
+              </td>
+              <td style={{ ...cell, font: "400 11.5px/1.45 'IBM Plex Sans'", color: r.description ? "var(--sub)" : "var(--faint)" }}>
+                {r.description || "—"}
+              </td>
+              <td style={cell}>
+                {onEdit ? (
+                  <ValueEditor row={r} onChange={(v) => onEdit(r.key, v)} />
+                ) : (
+                  <span
+                    style={{
+                      font: "500 11.5px 'IBM Plex Mono'",
+                      padding: "2px 7px",
+                      borderRadius: 6,
+                      background: hot ? "var(--accent-bg)" : "var(--surface)",
+                      border: `1px solid ${hot ? "var(--accent)" : "rgba(var(--line),.12)"}`,
+                      color: hot ? "var(--accent-ink)" : "var(--ink)",
+                    }}
+                  >
+                    {String(r.value)}
+                  </span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// Type-aware editor for a starting value: a toggle for bool, a picker for enum,
+// a clamped number field for int.
+function ValueEditor({ row, onChange }: { row: VariableRow; onChange: (v: Value) => void }) {
+  const box: React.CSSProperties = {
+    font: "400 11.5px 'IBM Plex Mono'",
+    padding: "3px 6px",
+    borderRadius: 6,
+    border: "1px solid rgba(var(--line),.16)",
+    background: "var(--surface)",
+    color: "var(--ink)",
+    width: "100%",
+  };
+  const t = row.type;
+
+  if (t.kind === "bool") {
+    return (
+      <select style={box} value={String(row.value === true)} onChange={(e) => onChange(e.target.value === "true")}>
+        <option value="true">true</option>
+        <option value="false">false</option>
+      </select>
+    );
+  }
+  if (t.kind === "enum") {
+    return (
+      <select style={box} value={String(row.value)} onChange={(e) => onChange(e.target.value)}>
+        {t.values.map((v) => (
+          <option key={v} value={v}>
+            {v}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      type="number"
+      style={box}
+      value={Number(row.value)}
+      min={t.min}
+      max={t.max}
+      onChange={(e) => {
+        let n = Math.trunc(Number(e.target.value));
+        if (!Number.isFinite(n)) return;
+        if (t.min != null) n = Math.max(t.min, n);
+        if (t.max != null) n = Math.min(t.max, n);
+        onChange(n);
+      }}
+    />
   );
 }
 

@@ -35,7 +35,7 @@ import {
   type Valuation,
   type Value,
 } from "./expr";
-import type { Activity, Flow, Project, Variable } from "../types";
+import type { Activity, Flow, Project, VarType, Variable } from "../types";
 
 export type { Valuation, Value } from "./expr";
 
@@ -253,7 +253,10 @@ export interface VariableRow {
   name: string;
   key: string;
   value: Value;
+  type: VarType;
   typeLabel: string;
+  /** Prose gloss from the variable, for the runner's table. */
+  description?: string;
 }
 
 /** Every variable and its current value, grouped for the runner's state panel. */
@@ -268,7 +271,9 @@ export function variableRows(project: Project, val: Valuation): VariableRow[] {
         name: v.name,
         key,
         value: val.get(key) ?? initialValue(v),
+        type: v.type,
         typeLabel: v.type.kind === "enum" ? `enum(${v.type.values.join(" | ")})` : v.type.kind,
+        description: v.description,
       });
     }
   }
