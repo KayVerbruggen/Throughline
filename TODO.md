@@ -31,7 +31,8 @@
   - Settings surface done: a top-bar gear opens a dialog for the key + model, with a "Test connection" button and a dot on the gear while unconfigured.
   - Foundation `completeJson` done: JSON extraction + caller-validated + one self-correcting retry (semantic checks live in the validator, so they drive the retry too).
   - Guard suggestion done: a "✨ Suggest from condition" button on each alternate branch turns its plain-language condition into a formal guard, validated by `analyzeGuard` before it's offered; it may propose new component variables (bool/int/enum), and accepting creates them and sets the guard together. See [AI-PLAN.md](AI-PLAN.md) for the fuller roadmap and sequencing.
-  - Next: effect suggestion (same shape, `analyzeEffect`), then the model critic (E) and NL authoring (F).
+  - Effect suggestion done: a "✨ Suggest effects" button in the ƒ panel turns an activity's label into a list of assignments, each validated by `analyzeEffect`; an empty list is valid (a pure named step). Shares the variable-proposal layer (`llm/variables.ts`) with guards. Same validate-before-apply, may propose new variables (typically a mode enum).
+  - Next: a whole-flow **"Formalize"** pass — one LLM call over an entire flow that fills every branch guard *and* activity effect from a single coherent shared state vocabulary (avoids the per-item calls each inventing their own variables), reviewed before apply, only filling empties; then "Formalize all use cases" as a sequential batch threading accepted variables forward. After that, the model critic (E) and NL authoring (F).
 
 ## Examples
 - [ ] Think of more varied examples as proof of concepts

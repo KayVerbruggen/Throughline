@@ -104,8 +104,21 @@ validate-before-apply because the validators already exist.
     builds an augmented project (existing + proposed vars), type-checks the guard
     against *that* with `analyzeGuard`, and the preview shows the new variables
     alongside the guard so accepting adds the vars and sets the guard together.
-- **Effect suggestion.** Same shape for `Activity.effects` (`head.name := value`)
-  validated by [`analyzeEffect`](src/model/expr/index.ts).
+- **Effect suggestion.** *(Shipped.)* Same shape for `Activity.effects`
+  (`head.name := value`) validated by [`analyzeEffect`](src/model/expr/index.ts):
+  a "✨ Suggest effects" button in the ƒ panel sends the activity's label + owner
+  + flow → model returns a *list* of assignments (plus optional new variables) →
+  each is type-checked against the augmented project → accepting appends them and
+  creates the variables. An empty list is a valid answer (a pure named step).
+  Shares the new-variable machinery (`llm/variables.ts`) with guard suggestion.
+- **Whole-flow "Formalize".** *(Next.)* One call over an entire flow filling every
+  branch guard and activity effect at once, so the model designs a single coherent
+  state vocabulary (a shared mode enum, gates, counters) instead of each per-item
+  call inventing its own variables. Reuses the shared variable + context layer and
+  the same `completeJson` self-correction; every guard/effect still type-checked
+  before it's shown. Reviewed before apply, filling only empties by default;
+  "Formalize all use cases" then loops flows sequentially, threading accepted
+  variables forward so later flows reuse earlier ones.
 - **Slot-filling micro-suggestions**, each returning JSON validated before apply:
   EARS requirement slots from a plain sentence (compose via `model/ears.ts`);
   decision Y-statement slots from a paragraph; a glossary definition from a term;
