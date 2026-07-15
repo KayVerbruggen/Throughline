@@ -2,6 +2,7 @@ import { AnthropicClient } from "./anthropic";
 import type { LlmClient } from "./types";
 
 export type { CompletionRequest, CompletionResult, LlmClient } from "./types";
+export { completeJson, extractJson, type JsonResult } from "./json";
 export type { LlmConfig } from "./config";
 export { DEFAULT_MODEL, MODEL_OPTIONS, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
 
