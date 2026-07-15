@@ -111,14 +111,19 @@ validate-before-apply because the validators already exist.
   each is type-checked against the augmented project → accepting appends them and
   creates the variables. An empty list is a valid answer (a pure named step).
   Shares the new-variable machinery (`llm/variables.ts`) with guard suggestion.
-- **Whole-flow "Formalize".** *(Next.)* One call over an entire flow filling every
-  branch guard and activity effect at once, so the model designs a single coherent
-  state vocabulary (a shared mode enum, gates, counters) instead of each per-item
-  call inventing its own variables. Reuses the shared variable + context layer and
-  the same `completeJson` self-correction; every guard/effect still type-checked
-  before it's shown. Reviewed before apply, filling only empties by default;
-  "Formalize all use cases" then loops flows sequentially, threading accepted
-  variables forward so later flows reuse earlier ones.
+- **Whole-flow "Formalize".** *(Shipped — [`llm/formalizeFlow.ts`](src/llm/formalizeFlow.ts).)*
+  One call over an entire flow fills every unformalized branch guard and activity
+  effect at once, so the model designs a single coherent state vocabulary (a shared
+  mode enum, gates, counters) instead of each per-item call inventing its own
+  variables. Reuses the shared variable + context layer and the same `completeJson`
+  self-correction; `validateFormalization` type-checks every guard (`analyzeGuard`)
+  and effect (`analyzeEffect`) against the augmented project, throws an item-located
+  message so one bad item drives the retry, drops already-formal items, and prunes
+  unreferenced proposed variables. A "✨ Formalize flow" button + review panel in the
+  Behaviour view shows the plan before `applyFormalization` applies it atomically.
+  - **Next: "Formalize all use cases"** — loop flows sequentially, threading
+    accepted variables forward (via the same `applyFormalization`) so later flows
+    reuse the state earlier ones introduced.
 - **Slot-filling micro-suggestions**, each returning JSON validated before apply:
   EARS requirement slots from a plain sentence (compose via `model/ears.ts`);
   decision Y-statement slots from a paragraph; a glossary definition from a term;
