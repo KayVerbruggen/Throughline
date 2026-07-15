@@ -221,6 +221,9 @@ export interface Variable {
   type: VarType;
   /** Raw literal for the variable's starting value, used by the simulator (Stage 2). */
   initial?: string;
+  /** Short prose gloss — what this variable means, for a reader who didn't
+   *  author it (shown beside the name in the flow runner). */
+  description?: string;
 }
 
 export interface Component {

@@ -1199,6 +1199,12 @@ function VariablesEditor({
             />
           )}
 
+          <TextInput
+            value={v.description ?? ""}
+            placeholder="What does this variable mean? (shown in the flow runner)"
+            onChange={(raw) => set(i, { description: raw.trim() ? raw : undefined })}
+          />
+
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span
               style={{

@@ -158,11 +158,13 @@ function parseVariables(v: unknown): Variable[] {
     .map((raw, i) => {
       const o = (raw ?? {}) as Record<string, unknown>;
       const initial = o.initial != null ? str(o.initial) : undefined;
+      const description = o.description != null ? str(o.description) : undefined;
       return {
         id: str(o.id, `VAR-${String(i + 1).padStart(3, "0")}`),
         name: str(o.name),
         type: parseVarType(o),
         ...(initial ? { initial } : {}),
+        ...(description ? { description } : {}),
       } satisfies Variable;
     })
     .filter((v) => v.name.length > 0);
@@ -418,6 +420,7 @@ export function serializeArtifact(a: Artifact): string {
             if (v.type.max != null) out.max = v.type.max;
           }
           if (v.initial) out.initial = v.initial;
+          if (v.description) out.description = v.description;
           return out;
         });
       }
