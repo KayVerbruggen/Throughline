@@ -26,6 +26,8 @@
   - Perhaps use SugarVita as a large example of what happens (would cost a bunch of tokens)
   - Started: `docs/` is now a Throughline project modelling Throughline itself (a self-contained reverse-engineering example), with a companion `docs/REVERSE-ENGINEERING-GUIDE.md` for future LLMs. The friction hit while writing it is captured below.
 - [ ] Come up with test cases for code generation and any LLM instructions that should be given — either by default or in a new view for the user
+- [ ] In-app LLM features (suggest guards/effects, draft a prototype, reverse-engineer a codebase)
+  - Started: `src/llm/` now holds the client foundation — a narrow provider-agnostic `LlmClient` (`complete(prompt)` → Result), a direct-fetch Anthropic implementation, and a `createLlmClient()` factory mirroring the storage split. API key + model live in `localStorage` (app-scoped, deliberately kept out of the project folder / git repo). No UI or feature wiring yet; next steps are a settings surface for the key and the first suggestion feature.
 
 ## Examples
 - [ ] Think of more varied examples as proof of concepts
