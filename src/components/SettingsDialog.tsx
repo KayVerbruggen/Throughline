@@ -154,7 +154,9 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             </button>
           </div>
           <div style={{ font: "400 11px/1.5 'IBM Plex Sans'", color: "var(--ter)", marginTop: 7 }}>
-            Create a key at console.anthropic.com. It's sent directly to Anthropic from this app.
+            A Claude Pro/Max subscription doesn't include API access — create a separate
+            pay-as-you-go key at console.anthropic.com. Prompts here are small, so a minimum
+            credit lasts a long time. The key is sent directly to Anthropic from this app.
           </div>
         </Section>
 
