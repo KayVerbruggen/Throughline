@@ -28,7 +28,10 @@
 - [ ] Come up with test cases for code generation and any LLM instructions that should be given — either by default or in a new view for the user
 - [ ] In-app LLM features (suggest guards/effects, draft a prototype, reverse-engineer a codebase)
   - Started: `src/llm/` now holds the client foundation — a narrow provider-agnostic `LlmClient` (`complete(prompt)` → Result), a direct-fetch Anthropic implementation, and a `createLlmClient()` factory mirroring the storage split. API key + model live in `localStorage` (app-scoped, deliberately kept out of the project folder / git repo).
-  - Settings surface done: a top-bar gear opens a dialog for the key + model, with a "Test connection" button and a dot on the gear while unconfigured. Next step is the first suggestion feature (guard/effect suggestion, reusing `analyzeGuard` to validate output).
+  - Settings surface done: a top-bar gear opens a dialog for the key + model, with a "Test connection" button and a dot on the gear while unconfigured.
+  - Foundation `completeJson` done: JSON extraction + caller-validated + one self-correcting retry (semantic checks live in the validator, so they drive the retry too).
+  - Guard suggestion done: a "✨ Suggest from condition" button on each alternate branch turns its plain-language condition into a formal guard, validated by `analyzeGuard` before it's offered; it may propose new component variables (bool/int/enum), and accepting creates them and sets the guard together. See [AI-PLAN.md](AI-PLAN.md) for the fuller roadmap and sequencing.
+  - Next: effect suggestion (same shape, `analyzeEffect`), then the model critic (E) and NL authoring (F).
 
 ## Examples
 - [ ] Think of more varied examples as proof of concepts

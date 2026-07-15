@@ -2,14 +2,26 @@ import { create } from "zustand";
 
 import { loadLlmConfig, saveLlmConfig, type LlmConfig } from "../llm";
 import { componentHandle, renameComponentHandle } from "../model/expr";
-import { nextId } from "../model/ids";
+import { nextId, nextVariableId } from "../model/ids";
 import { createStorage, type StorageAdapter } from "../storage";
 import {
   emptyProject,
   type Artifact,
   type ArtifactKind,
+  type Component,
   type Project,
+  type Variable,
+  type VarType,
 } from "../types";
+
+/** A component variable to create — component chosen by id; the id is minted here. */
+export interface NewVariable {
+  componentId: string;
+  name: string;
+  type: VarType;
+  description?: string;
+  initial?: string;
+}
 
 export type ViewId =
   | "stakeholders"
@@ -139,6 +151,14 @@ interface AppState {
   addComponent: (parentId: string) => Promise<void>;
   updateSelected: (patch: Partial<Artifact>) => Promise<void>;
   deleteSelected: () => Promise<void>;
+
+  /**
+   * Add one or more state variables to their components, minting a fresh
+   * project-wide `VAR-…` id for each and persisting the touched components. Used
+   * by the guard-suggestion flow when the user accepts variables the model
+   * proposed alongside a guard.
+   */
+  addVariables: (vars: NewVariable[]) => Promise<void>;
 
   /** Replace-or-insert any artifact and persist it (used by the flow editor). */
   upsertArtifact: (artifact: Artifact) => Promise<void>;
@@ -535,6 +555,29 @@ export const useStore = create<AppState>((set, get) => {
       const { selection, removeArtifact } = get();
       if (!selection) return;
       await removeArtifact(selection.kind, selection.id);
+    },
+
+    addVariables: async (vars) => {
+      if (vars.length === 0) return;
+      const { project, storage } = get();
+      let next = project;
+      const touchedIds = new Set<string>();
+      for (const nv of vars) {
+        const comp = next.components.find((c) => c.id === nv.componentId);
+        if (!comp) continue;
+        // Mint against `next` so ids stay unique as we add several in a row.
+        const variable: Variable = { id: nextVariableId(next), name: nv.name, type: nv.type };
+        if (nv.description) variable.description = nv.description;
+        if (nv.initial) variable.initial = nv.initial;
+        const updated: Component = { ...comp, variables: [...comp.variables, variable] };
+        next = replaceArtifact(next, updated);
+        touchedIds.add(comp.id);
+      }
+      set({ project: next });
+      for (const id of touchedIds) {
+        const finalComp = next.components.find((c) => c.id === id);
+        if (finalComp) await storage.save(finalComp);
+      }
     },
 
     upsertArtifact: async (artifact) => {

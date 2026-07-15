@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { createLlmClient, formatVarType, suggestGuard, type GuardSuggestion } from "../../llm";
 import { activityLabel, componentOfActivity, flowOfUseCase } from "../../model/behavior";
-import { analyzeEffect, analyzeGuard, guardCandidates, type GuardCandidate } from "../../model/expr";
+import {
+  analyzeEffect,
+  analyzeGuard,
+  componentHandle,
+  guardCandidates,
+  type GuardCandidate,
+} from "../../model/expr";
 import {
   addAlternate,
   addStep,
@@ -17,7 +24,7 @@ import {
 } from "../../model/flowEdit";
 import { nextId } from "../../model/ids";
 import { useStore, type BehaviorDiagram, type BehaviorMode } from "../../state/store";
-import type { AltPath, Component, Flow, UseCase } from "../../types";
+import type { AltPath, Component, Flow, Project, UseCase } from "../../types";
 import { Icon } from "../icons";
 import { useConfirm } from "../useConfirm";
 import { FlowDiagram } from "./FlowDiagram";
@@ -1262,6 +1269,178 @@ function ActivityField({
 }
 
 // ---------------------------------------------------------------------------
+// Guard suggestion — turn a branch's plain-language condition into a formal,
+// type-checked guard via the LLM, and (on accept) apply it plus any new
+// variables it needs. The model output is validated by analyzeGuard before it's
+// ever offered, so an invalid guard is never applied.
+// ---------------------------------------------------------------------------
+
+function GuardSuggest({
+  project,
+  flow,
+  alt,
+  condition,
+  apply,
+  onAccepted,
+}: {
+  project: Project;
+  flow: Flow;
+  alt: AltPath;
+  condition: string;
+  apply: (edit: FlowEdit) => Promise<void>;
+  onAccepted: (guard: string) => void;
+}) {
+  const addVariables = useStore((s) => s.addVariables);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [proposal, setProposal] = useState<GuardSuggestion | null>(null);
+
+  const accent = "oklch(0.52 0.11 62)";
+
+  const run = async () => {
+    setError(null);
+    setProposal(null);
+    const cond = condition.trim();
+    if (!cond) {
+      setError("Add a condition first so the model knows when this branch is taken.");
+      return;
+    }
+    const client = createLlmClient();
+    if (!client.isConfigured()) {
+      setError("Add an Anthropic API key in Settings (the gear, top-right) to use suggestions.");
+      return;
+    }
+    setBusy(true);
+    const r = await suggestGuard(client, project, cond);
+    setBusy(false);
+    if (r.ok) setProposal(r.value);
+    else setError(r.error);
+  };
+
+  const accept = async () => {
+    if (!proposal) return;
+    if (proposal.newVariables.length) await addVariables(proposal.newVariables);
+    onAccepted(proposal.guard);
+    await apply(updateAlternate(flow, alt.id, { guard: proposal.guard }));
+    setProposal(null);
+  };
+
+  return (
+    <div style={{ marginTop: 6, marginLeft: 26 }}>
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={busy}
+        title="Suggest a formal guard from the condition above"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "4px 9px",
+          border: `1px solid ${accent}`,
+          borderRadius: 6,
+          background: "transparent",
+          color: accent,
+          font: "500 11.5px 'IBM Plex Sans'",
+          cursor: busy ? "default" : "pointer",
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {busy ? "Thinking…" : "✨ Suggest from condition"}
+      </button>
+
+      {error ? (
+        <div style={{ marginTop: 6, font: "400 11.5px/1.45 'IBM Plex Sans'", color: "var(--warn-ink)" }}>
+          {error}
+        </div>
+      ) : null}
+
+      {proposal ? (
+        <div
+          style={{
+            marginTop: 8,
+            border: `1px solid ${accent}`,
+            borderRadius: 8,
+            background: "var(--surface)",
+            padding: "10px 12px",
+          }}
+        >
+          <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 6 }}>
+            Suggested guard
+          </div>
+          <div style={{ font: "400 13px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-word" }}>
+            {proposal.guard}
+          </div>
+
+          {proposal.newVariables.length ? (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
+                New variables to create
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {proposal.newVariables.map((nv, i) => {
+                  const comp = project.components.find((c) => c.id === nv.componentId);
+                  const handle = comp ? componentHandle(comp.title) || comp.id : nv.componentId;
+                  return (
+                    <div key={i} style={{ font: "400 12px 'IBM Plex Mono'", color: "var(--ink)" }}>
+                      <span style={{ color: accent }}>+ </span>
+                      {handle}.{nv.name}
+                      <span style={{ color: "var(--ter)" }}> : {formatVarType(nv.type)}</span>
+                      {nv.description ? (
+                        <span style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--ter)" }}> — {nv.description}</span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {proposal.explanation ? (
+            <div style={{ marginTop: 8, font: "400 11.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
+              {proposal.explanation}
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              type="button"
+              onClick={() => void accept()}
+              style={{
+                padding: "6px 13px",
+                border: "none",
+                borderRadius: 7,
+                background: "var(--ink)",
+                color: "var(--bg)",
+                font: "500 12px 'IBM Plex Sans'",
+                cursor: "pointer",
+              }}
+            >
+              {proposal.newVariables.length ? "Accept & create variables" : "Accept"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setProposal(null)}
+              style={{
+                padding: "6px 13px",
+                border: "1px solid rgba(var(--line),.14)",
+                borderRadius: 7,
+                background: "transparent",
+                color: "var(--sub)",
+                font: "500 12px 'IBM Plex Sans'",
+                cursor: "pointer",
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Alternate path block — rendered inline beneath its branch point.
 // ---------------------------------------------------------------------------
 
@@ -1473,6 +1652,14 @@ function AltBlock({
                 {guardError}
               </div>
             ) : null}
+            <GuardSuggest
+              project={project}
+              flow={flow}
+              alt={alt}
+              condition={cond}
+              apply={apply}
+              onAccepted={setGuard}
+            />
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }} {...dropZoneProps(stepDrag)}>
