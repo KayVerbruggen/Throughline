@@ -38,6 +38,14 @@ export {
   type BatchFormalization,
   type FlowFormalization,
 } from "./formalizeAll";
+export { allArtifactIds, describeProject } from "./projectContext";
+export {
+  buildCritiquePrompt,
+  critiqueProject,
+  validateCritique,
+  type Finding,
+  type Severity,
+} from "./critique";
 export type { LlmConfig } from "./config";
 export { DEFAULT_MODEL, MODEL_OPTIONS, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
 
