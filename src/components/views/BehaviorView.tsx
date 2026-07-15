@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  applyFormalization,
   createLlmClient,
+  formalizeFlow,
   formatVarType,
+  pendingFormalization,
   suggestEffects,
   suggestGuard,
   type EffectSuggestion,
+  type FormalizationPlan,
   type GuardSuggestion,
 } from "../../llm";
 import { activityLabel, componentOfActivity, flowOfUseCase } from "../../model/behavior";
@@ -31,7 +35,7 @@ import {
 } from "../../model/flowEdit";
 import { nextId } from "../../model/ids";
 import { useStore, type BehaviorDiagram, type BehaviorMode } from "../../state/store";
-import type { AltPath, Component, Flow, Project, UseCase } from "../../types";
+import type { AltPath, Artifact, Component, Flow, Project, UseCase } from "../../types";
 import { Icon } from "../icons";
 import { useConfirm } from "../useConfirm";
 import { FlowDiagram } from "./FlowDiagram";
@@ -460,6 +464,7 @@ function DiagramToggle({ kind, onChange }: { kind: BehaviorDiagram; onChange: (k
 // ---------------------------------------------------------------------------
 
 function FlowEditor({ flow, uc }: { flow: Flow; uc: UseCase }) {
+  const project = useStore((s) => s.project);
   const upsertArtifact = useStore((s) => s.upsertArtifact);
   const select = useStore((s) => s.select);
 
@@ -535,6 +540,8 @@ function FlowEditor({ flow, uc }: { flow: Flow; uc: UseCase }) {
           + Add alternate path
         </button>
       </div>
+
+      <FormalizeFlow project={project} flow={flow} upsertArtifact={upsertArtifact} />
 
       {/* Main flow, with each alternate rendered beneath its branch point. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }} {...dropZoneProps(mainDrag)}>
@@ -1640,6 +1647,230 @@ function EffectSuggest({
               onClick={() => setProposal(null)}
               style={{
                 padding: "6px 13px",
+                border: "1px solid rgba(var(--line),.14)",
+                borderRadius: 7,
+                background: "transparent",
+                color: "var(--sub)",
+                font: "500 12px 'IBM Plex Sans'",
+                cursor: "pointer",
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Formalize flow — one LLM pass over the whole flow that fills every branch
+// guard and every activity effect from a single coherent state vocabulary. The
+// plan is fully type-checked (each guard by analyzeGuard, each effect by
+// analyzeEffect) before it's shown; accepting applies it atomically via
+// applyFormalization. Only renders when there's something left to fill.
+// ---------------------------------------------------------------------------
+
+function FormalizeFlow({
+  project,
+  flow,
+  upsertArtifact,
+}: {
+  project: Project;
+  flow: Flow;
+  upsertArtifact: (artifact: Artifact) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<FormalizationPlan | null>(null);
+
+  const accent = "oklch(0.52 0.11 62)";
+  const targets = pendingFormalization(project, flow);
+  const pending = targets.guards.length + targets.effects.length;
+
+  // Nothing to fill and nothing in flight — stay out of the way entirely.
+  if (pending === 0 && !plan && !error && !busy) return null;
+
+  const run = async () => {
+    setError(null);
+    setPlan(null);
+    const client = createLlmClient();
+    if (!client.isConfigured()) {
+      setError("Add an Anthropic API key in Settings (the gear, top-right) to use suggestions.");
+      return;
+    }
+    setBusy(true);
+    const r = await formalizeFlow(client, project, flow);
+    setBusy(false);
+    if (r.ok) setPlan(r.value);
+    else setError(r.error);
+  };
+
+  const accept = async () => {
+    if (!plan) return;
+    const { touched } = applyFormalization(project, flow.id, plan);
+    for (const art of touched) await upsertArtifact(art);
+    setPlan(null);
+  };
+
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const summary = [
+    targets.guards.length ? count(targets.guards.length, "branch", "branches") : null,
+    targets.effects.length ? count(targets.effects.length, "activity", "activities") : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const planEmpty = !!plan && plan.guards.length === 0 && plan.effects.length === 0;
+
+  return (
+    <div style={{ margin: "0 0 16px" }}>
+      {pending > 0 || busy ? (
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={busy}
+          title="Formalize every unfilled branch guard and activity effect in one pass"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 12px",
+            border: `1px solid ${accent}`,
+            borderRadius: 7,
+            background: "transparent",
+            color: accent,
+            font: "500 12.5px 'IBM Plex Sans'",
+            cursor: busy ? "default" : "pointer",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {busy ? "Formalizing the whole flow…" : "✨ Formalize flow"}
+          {!busy && summary ? (
+            <span style={{ font: "400 11px 'IBM Plex Mono'", opacity: 0.8 }}>{summary} to fill</span>
+          ) : null}
+        </button>
+      ) : null}
+
+      {error ? (
+        <div style={{ marginTop: 8, font: "400 11.5px/1.45 'IBM Plex Sans'", color: "var(--warn-ink)" }}>
+          {error}
+        </div>
+      ) : null}
+
+      {plan ? (
+        <div
+          style={{
+            marginTop: 10,
+            border: `1px solid ${accent}`,
+            borderRadius: 10,
+            background: "var(--surface)",
+            padding: "14px 16px",
+          }}
+        >
+          <div style={{ font: "600 11px 'IBM Plex Mono'", letterSpacing: ".06em", textTransform: "uppercase", color: accent, marginBottom: 4 }}>
+            Proposed formalization
+          </div>
+          {plan.explanation ? (
+            <div style={{ font: "400 12.5px/1.55 'IBM Plex Sans'", color: "var(--sub)", marginBottom: 12 }}>
+              {plan.explanation}
+            </div>
+          ) : null}
+
+          {planEmpty ? (
+            <div style={{ font: "400 12.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
+              The model didn't find anything to formalize here — the branches and activities may already be
+              covered, or carry no state.
+            </div>
+          ) : null}
+
+          {plan.newVariables.length ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
+                New variables to create
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {plan.newVariables.map((nv, i) => {
+                  const comp = project.components.find((c) => c.id === nv.componentId);
+                  const handle = comp ? componentHandle(comp.title) || comp.id : nv.componentId;
+                  return (
+                    <div key={i} style={{ font: "400 12px 'IBM Plex Mono'", color: "var(--ink)" }}>
+                      <span style={{ color: accent }}>+ </span>
+                      {handle}.{nv.name}
+                      <span style={{ color: "var(--ter)" }}> : {formatVarType(nv.type)}</span>
+                      {nv.description ? (
+                        <span style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--ter)" }}> — {nv.description}</span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {plan.guards.length ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
+                Branch guards
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {plan.guards.map((g) => (
+                  <div key={g.altId}>
+                    <div style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--sub)" }}>
+                      IF {g.condition || g.altId}
+                    </div>
+                    <div style={{ font: "400 13px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-word" }}>
+                      {g.guard}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {plan.effects.length ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
+                Activity effects
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {plan.effects.map((e) => (
+                  <div key={e.activityId}>
+                    <div style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--sub)" }}>{e.label || e.activityId}</div>
+                    {e.effects.map((eff, j) => (
+                      <div key={j} style={{ font: "400 13px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-word" }}>
+                        {eff}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            {planEmpty ? null : (
+              <button
+                type="button"
+                onClick={() => void accept()}
+                style={{
+                  padding: "7px 15px",
+                  border: "none",
+                  borderRadius: 7,
+                  background: "var(--ink)",
+                  color: "var(--bg)",
+                  font: "500 12px 'IBM Plex Sans'",
+                  cursor: "pointer",
+                }}
+              >
+                Accept all{plan.newVariables.length ? " & create variables" : ""}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setPlan(null)}
+              style={{
+                padding: "7px 15px",
                 border: "1px solid rgba(var(--line),.14)",
                 borderRadius: 7,
                 background: "transparent",
