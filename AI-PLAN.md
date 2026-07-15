@@ -98,6 +98,12 @@ validate-before-apply because the validators already exist.
   expression → run [`analyzeGuard`](src/model/expr/index.ts) → if `ok`, offer to
   insert; if not, feed the message back for one repair attempt, then show the
   error. Plug-in: the guard editor in [`BehaviorView.tsx`](src/components/views/BehaviorView.tsx).
+  - **May propose *new* variables, not just reuse existing ones.** If the condition
+    can't be expressed with the declared variables, the model can also return new
+    `Variable`s (component, name, type, description, initial) to create. Validation
+    builds an augmented project (existing + proposed vars), type-checks the guard
+    against *that* with `analyzeGuard`, and the preview shows the new variables
+    alongside the guard so accepting adds the vars and sets the guard together.
 - **Effect suggestion.** Same shape for `Activity.effects` (`head.name := value`)
   validated by [`analyzeEffect`](src/model/expr/index.ts).
 - **Slot-filling micro-suggestions**, each returning JSON validated before apply:
@@ -107,10 +113,13 @@ validate-before-apply because the validators already exist.
 - **Context builder:** `componentContext(component)`. **UI:** inline "✨" next to
   the field. **Effort:** small; build guard as the template, replicate.
 
-### B. Reverse-engineering a new project — *headline feature*
+### B. Reverse-engineering a new project — *headline feature, sequenced late*
 
 The "headline hard case" per [`docs/README.md`](docs/README.md). The manual
-pipeline is already specified in the guide; this automates it.
+pipeline is already specified in the guide; this automates it. **Deliberately
+sequenced after the prototype feature (C):** codebase ingestion and multi-artifact
+generation are the hardest, most error-prone part of the whole plan, so it's worth
+proving the validate→apply and generation machinery on smaller features first.
 
 1. **Ingest.** New Rust command `read_source_tree` in
    [`storage.rs`](src-tauri/src/storage.rs): walk a chosen folder, honour
@@ -139,15 +148,27 @@ an executable spec — guards + effects form a transition function over valuatio
 `applyAssignment`). The AI's job is to skin that into something a stakeholder can
 experience and react to.
 
-- **Input:** a use case + its flow + the involved components/variables + a target
-  ("clickable web UI", "CLI transcript", "storyboard").
-- **Output:** a single self-contained HTML prototype (or a Markdown storyboard)
-  whose state logic encodes the flow's states/guards/effects. **New code:**
-  `src/llm/prototype/`.
+- **Must look customer-friendly, in the language of the domain — not an engineer's
+  state chart.** The visuals should match the stakeholder's mental model of the
+  real system. For the pound-lock example that means an actual **lock scene**: a
+  boat that moves between the reaches, **buttons that trigger the flow's
+  activities** (open upstream gate, fill chamber, …), and **state variables shown
+  visually** rather than as text — a gate that swings open/closed, a water level
+  that rises and falls, a signal that changes colour. The underlying transitions
+  come from the model; the skin is what the customer recognises.
+- **Input:** a use case + its flow + the involved components/variables (with their
+  descriptions and value ranges) + a target ("clickable web UI", "CLI transcript",
+  "storyboard"). A domain hint (e.g. "canal lock", "EV charger") helps the model
+  pick apt visuals.
+- **Output:** a single self-contained HTML prototype whose controls map to the
+  flow's activities and whose on-screen state reflects the variable valuations.
+  **New code:** `src/llm/prototype/`.
 - **Consistency:** the prototype must not invent states/variables outside the
-  model; ideally its transitions are checked against the simulator's. Keep it
+  model; the buttons must correspond to real activities and the shown state to real
+  variables; ideally its transitions are checked against the simulator's. Keep it
   clearly labelled as an aid, model stays canonical.
-- **Effort:** medium; scope v1 to "one use case → one clickable HTML prototype".
+- **Effort:** medium; scope v1 to "one use case → one clickable, domain-skinned
+  HTML prototype", starting with the pound-lock example as the reference target.
 
 ### D. Bigger build-out of the real software — *mostly delegated, by design*
 
@@ -199,12 +220,15 @@ agent too). The division of labour:
 
 1. **Foundation:** `completeJson`, context builder, prompt module, `validate.ts`,
    the proposal/apply UX. *(Enables everything; ship with feature A.)*
-2. **A — guard/effect suggestion.** The vertical slice that proves the pattern.
+2. **A — guard/effect suggestion**, including proposing new variables. The vertical
+   slice that proves the pattern.
 3. **E — model critic.** Read-only, high value, low risk.
 4. **F — NL authoring** and **B-lite** (starter project from a description) — single
    artifact, then whole project, both on the validate+apply layer.
-5. **B — full reverse-engineering** from a codebase (Rust ingestion + orchestration).
-6. **C — prototype generation.**
+5. **C — prototype generation** (customer-friendly, domain-skinned; pound-lock as
+   the reference target).
+6. **B — full reverse-engineering** from a codebase (Rust ingestion + orchestration)
+   — the hardest piece, deliberately after C.
 7. **D — build brief / forward hand-off**, plus the smaller helpers (G–J) as they
    pull their weight.
 
