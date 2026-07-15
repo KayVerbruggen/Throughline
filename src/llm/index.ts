@@ -33,6 +33,11 @@ export {
   type FormalizedEffects,
   type FormalizedGuard,
 } from "./formalizeFlow";
+export {
+  formalizeAllFlows,
+  type BatchFormalization,
+  type FlowFormalization,
+} from "./formalizeAll";
 export type { LlmConfig } from "./config";
 export { DEFAULT_MODEL, MODEL_OPTIONS, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
 
