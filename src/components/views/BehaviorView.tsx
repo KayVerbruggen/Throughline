@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import {
   applyFormalization,
   createLlmClient,
+  formalizeAllFlows,
   formalizeFlow,
   formatVarType,
   pendingFormalization,
   suggestEffects,
   suggestGuard,
+  type BatchFormalization,
   type EffectSuggestion,
   type FormalizationPlan,
   type GuardSuggestion,
@@ -86,6 +88,7 @@ export function BehaviorView() {
 function FlowPanel({ uc, onSelectUc }: { uc: UseCase; onSelectUc: (id: string) => void }) {
   const project = useStore((s) => s.project);
   const ensureFlowForUseCase = useStore((s) => s.ensureFlowForUseCase);
+  const upsertArtifact = useStore((s) => s.upsertArtifact);
   const flow = flowOfUseCase(project, uc);
 
   const mode = useStore((s) => s.prefs.behaviorMode);
@@ -99,6 +102,10 @@ function FlowPanel({ uc, onSelectUc }: { uc: UseCase; onSelectUc: (id: string) =
         <div style={{ flex: 1 }} />
         {flow ? <ModeSwitch mode={mode} onChange={setMode} /> : null}
       </div>
+
+      {/* Whole-project formalization, above the single-flow editor. Only shows
+          in build mode, and only when two or more flows still have gaps. */}
+      {mode === "build" ? <FormalizeAll project={project} upsertArtifact={upsertArtifact} /> : null}
 
       {!flow ? (
         <NoFlow uc={uc} onCreate={() => void ensureFlowForUseCase(uc.id)} />
@@ -1664,6 +1671,100 @@ function EffectSuggest({
   );
 }
 
+// The warm accent shared by every AI suggestion/formalization affordance.
+const FORMALIZE_ACCENT = "oklch(0.52 0.11 62)";
+
+// ---------------------------------------------------------------------------
+// PlanBody — the read-only rendering of one FormalizationPlan (new variables,
+// branch guards, activity effects, and the model's note). Shared by the single-
+// flow Formalize panel and each flow section of the whole-project batch review,
+// so the two read identically. Callers own the surrounding frame and buttons.
+// ---------------------------------------------------------------------------
+
+function PlanBody({ project, plan }: { project: Project; plan: FormalizationPlan }) {
+  const empty = plan.guards.length === 0 && plan.effects.length === 0;
+  const sectionLabel: CSSProperties = {
+    font: "500 10px 'IBM Plex Mono'",
+    letterSpacing: ".08em",
+    textTransform: "uppercase",
+    color: "var(--ter)",
+    marginBottom: 5,
+  };
+  const mono: CSSProperties = { font: "400 13px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-word" };
+  const caption: CSSProperties = { font: "400 11.5px 'IBM Plex Sans'", color: "var(--sub)" };
+
+  return (
+    <>
+      {plan.explanation ? (
+        <div style={{ font: "400 12.5px/1.55 'IBM Plex Sans'", color: "var(--sub)", marginBottom: 12 }}>
+          {plan.explanation}
+        </div>
+      ) : null}
+
+      {empty ? (
+        <div style={{ font: "400 12.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
+          The model didn't find anything to formalize here — the branches and activities may already be
+          covered, or carry no state.
+        </div>
+      ) : null}
+
+      {plan.newVariables.length ? (
+        <div style={{ marginBottom: 12 }}>
+          <div style={sectionLabel}>New variables to create</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {plan.newVariables.map((nv, i) => {
+              const comp = project.components.find((c) => c.id === nv.componentId);
+              const handle = comp ? componentHandle(comp.title) || comp.id : nv.componentId;
+              return (
+                <div key={i} style={{ font: "400 12px 'IBM Plex Mono'", color: "var(--ink)" }}>
+                  <span style={{ color: FORMALIZE_ACCENT }}>+ </span>
+                  {handle}.{nv.name}
+                  <span style={{ color: "var(--ter)" }}> : {formatVarType(nv.type)}</span>
+                  {nv.description ? (
+                    <span style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--ter)" }}> — {nv.description}</span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {plan.guards.length ? (
+        <div style={{ marginBottom: 12 }}>
+          <div style={sectionLabel}>Branch guards</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {plan.guards.map((g) => (
+              <div key={g.altId}>
+                <div style={caption}>IF {g.condition || g.altId}</div>
+                <div style={mono}>{g.guard}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {plan.effects.length ? (
+        <div style={{ marginBottom: 12 }}>
+          <div style={sectionLabel}>Activity effects</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {plan.effects.map((e) => (
+              <div key={e.activityId}>
+                <div style={caption}>{e.label || e.activityId}</div>
+                {e.effects.map((eff, j) => (
+                  <div key={j} style={mono}>
+                    {eff}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Formalize flow — one LLM pass over the whole flow that fills every branch
 // guard and every activity effect from a single coherent state vocabulary. The
@@ -1685,7 +1786,7 @@ function FormalizeFlow({
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<FormalizationPlan | null>(null);
 
-  const accent = "oklch(0.52 0.11 62)";
+  const accent = FORMALIZE_ACCENT;
   const targets = pendingFormalization(project, flow);
   const pending = targets.guards.length + targets.effects.length;
 
@@ -1771,82 +1872,7 @@ function FormalizeFlow({
           <div style={{ font: "600 11px 'IBM Plex Mono'", letterSpacing: ".06em", textTransform: "uppercase", color: accent, marginBottom: 4 }}>
             Proposed formalization
           </div>
-          {plan.explanation ? (
-            <div style={{ font: "400 12.5px/1.55 'IBM Plex Sans'", color: "var(--sub)", marginBottom: 12 }}>
-              {plan.explanation}
-            </div>
-          ) : null}
-
-          {planEmpty ? (
-            <div style={{ font: "400 12.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
-              The model didn't find anything to formalize here — the branches and activities may already be
-              covered, or carry no state.
-            </div>
-          ) : null}
-
-          {plan.newVariables.length ? (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
-                New variables to create
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {plan.newVariables.map((nv, i) => {
-                  const comp = project.components.find((c) => c.id === nv.componentId);
-                  const handle = comp ? componentHandle(comp.title) || comp.id : nv.componentId;
-                  return (
-                    <div key={i} style={{ font: "400 12px 'IBM Plex Mono'", color: "var(--ink)" }}>
-                      <span style={{ color: accent }}>+ </span>
-                      {handle}.{nv.name}
-                      <span style={{ color: "var(--ter)" }}> : {formatVarType(nv.type)}</span>
-                      {nv.description ? (
-                        <span style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--ter)" }}> — {nv.description}</span>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          {plan.guards.length ? (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
-                Branch guards
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {plan.guards.map((g) => (
-                  <div key={g.altId}>
-                    <div style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--sub)" }}>
-                      IF {g.condition || g.altId}
-                    </div>
-                    <div style={{ font: "400 13px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-word" }}>
-                      {g.guard}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {plan.effects.length ? (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
-                Activity effects
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {plan.effects.map((e) => (
-                  <div key={e.activityId}>
-                    <div style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--sub)" }}>{e.label || e.activityId}</div>
-                    {e.effects.map((eff, j) => (
-                      <div key={j} style={{ font: "400 13px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-word" }}>
-                        {eff}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          <PlanBody project={project} plan={plan} />
 
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             {planEmpty ? null : (
@@ -1869,6 +1895,186 @@ function FormalizeFlow({
             <button
               type="button"
               onClick={() => setPlan(null)}
+              style={{
+                padding: "7px 15px",
+                border: "1px solid rgba(var(--line),.14)",
+                borderRadius: 7,
+                background: "transparent",
+                color: "var(--sub)",
+                font: "500 12px 'IBM Plex Sans'",
+                cursor: "pointer",
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Formalize all use cases — one sequential pass over every use case's flow,
+// threading the evolving project so later flows reuse the state earlier ones
+// introduced (see llm/formalizeAll.ts). The batch runs on an in-memory copy;
+// this panel shows every flow's proposal (or its error) and a single Accept-all
+// that persists the accumulated changes. Threaded plans can't be accepted
+// piecemeal — a later flow's guard may depend on an earlier flow's variable —
+// so it is all-or-nothing by design.
+// ---------------------------------------------------------------------------
+
+function FormalizeAll({
+  project,
+  upsertArtifact,
+}: {
+  project: Project;
+  upsertArtifact: (artifact: Artifact) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [batch, setBatch] = useState<BatchFormalization | null>(null);
+
+  const accent = FORMALIZE_ACCENT;
+
+  // How many distinct use-case flows still have something to formalize.
+  const seen = new Set<string>();
+  let pendingFlows = 0;
+  for (const uc of project.useCases) {
+    const f = flowOfUseCase(project, uc);
+    if (!f || seen.has(f.id)) continue;
+    seen.add(f.id);
+    const t = pendingFormalization(project, f);
+    if (t.guards.length + t.effects.length > 0) pendingFlows++;
+  }
+
+  // Only worth offering when at least two flows are pending — a single one is
+  // better served by that flow's own "Formalize flow" button.
+  if (pendingFlows < 2 && !batch && !error && !busy) return null;
+
+  const run = async () => {
+    setError(null);
+    setBatch(null);
+    const client = createLlmClient();
+    if (!client.isConfigured()) {
+      setError("Add an Anthropic API key in Settings (the gear, top-right) to use suggestions.");
+      return;
+    }
+    setBusy(true);
+    const r = await formalizeAllFlows(client, project);
+    setBusy(false);
+    if (r.ok) setBatch(r.value);
+    else setError(r.error);
+  };
+
+  const accept = async () => {
+    if (!batch) return;
+    for (const art of batch.touched) await upsertArtifact(art);
+    setBatch(null);
+  };
+
+  return (
+    <div style={{ margin: "0 0 4px" }}>
+      {pendingFlows >= 2 || busy ? (
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={busy}
+          title="Formalize every use case's flow in one pass, reusing state across flows"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 12px",
+            border: `1px solid ${accent}`,
+            borderRadius: 7,
+            background: "transparent",
+            color: accent,
+            font: "500 12.5px 'IBM Plex Sans'",
+            cursor: busy ? "default" : "pointer",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {busy ? "Formalizing every flow…" : "✨ Formalize all use cases"}
+          {!busy ? (
+            <span style={{ font: "400 11px 'IBM Plex Mono'", opacity: 0.8 }}>{pendingFlows} flows to fill</span>
+          ) : null}
+        </button>
+      ) : null}
+
+      {error ? (
+        <div style={{ marginTop: 8, font: "400 11.5px/1.45 'IBM Plex Sans'", color: "var(--warn-ink)" }}>
+          {error}
+        </div>
+      ) : null}
+
+      {batch ? (
+        <div
+          style={{
+            marginTop: 10,
+            border: `1px solid ${accent}`,
+            borderRadius: 10,
+            background: "var(--surface)",
+            padding: "14px 16px",
+          }}
+        >
+          <div style={{ font: "600 11px 'IBM Plex Mono'", letterSpacing: ".06em", textTransform: "uppercase", color: accent, marginBottom: 10 }}>
+            Proposed formalization · {batch.flows.length} {batch.flows.length === 1 ? "flow" : "flows"}
+            {batch.skipped ? (
+              <span style={{ color: "var(--faint)" }}> · {batch.skipped} skipped</span>
+            ) : null}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, maxHeight: "min(58vh, 620px)", overflowY: "auto" }}>
+            {batch.flows.length === 0 ? (
+              <div style={{ font: "400 12.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
+                Nothing left to formalize — every use case's flow is already covered.
+              </div>
+            ) : (
+              batch.flows.map((f) => (
+                <div key={f.flowId} style={{ borderTop: "1px solid rgba(var(--line),.1)", paddingTop: 12 }}>
+                  <div style={{ font: "500 12.5px 'IBM Plex Sans'", color: "var(--ink)", marginBottom: 2 }}>
+                    {f.flowTitle}
+                    <span style={{ font: "400 11px 'IBM Plex Mono'", color: "var(--faint)" }}>
+                      {" "}
+                      {f.flowId} · {f.useCaseTitle}
+                    </span>
+                  </div>
+                  {f.error ? (
+                    <div style={{ font: "400 11.5px/1.45 'IBM Plex Sans'", color: "var(--warn-ink)", marginTop: 4 }}>
+                      Couldn't formalize this flow: {f.error}
+                    </div>
+                  ) : f.plan ? (
+                    <div style={{ marginTop: 6 }}>
+                      <PlanBody project={project} plan={f.plan} />
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            {batch.touched.length ? (
+              <button
+                type="button"
+                onClick={() => void accept()}
+                style={{
+                  padding: "7px 15px",
+                  border: "none",
+                  borderRadius: 7,
+                  background: "var(--ink)",
+                  color: "var(--bg)",
+                  font: "500 12px 'IBM Plex Sans'",
+                  cursor: "pointer",
+                }}
+              >
+                Accept all
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setBatch(null)}
               style={{
                 padding: "7px 15px",
                 border: "1px solid rgba(var(--line),.14)",
