@@ -47,10 +47,14 @@ interface RunHandle {
 
 /**
  * The activity diagram for one flow, plus an in-place interpreter: press Run to
- * walk the token through it, applying effects and evaluating guards. Nodes are
- * read-only otherwise (the step editor is right beside it).
+ * walk the token through it, applying effects and evaluating guards.
+ *
+ * `interactive` (the default) shows the Run controls and the live/setup state
+ * table above the graph — that's the behaviour view's Run mode. Passing
+ * `interactive={false}` renders just the graph as a static structural reference
+ * (Diagram mode).
  */
-export function FlowDiagram({ flow }: { flow: Flow }) {
+export function FlowDiagram({ flow, interactive = true }: { flow: Flow; interactive?: boolean }) {
   const project = useStore((s) => s.project);
   const diagram = useMemo<ActivityDiagram>(
     () => deriveActivityDiagram(project, flow),
@@ -156,28 +160,32 @@ export function FlowDiagram({ flow }: { flow: Flow }) {
 
   return (
     <div>
-      <RunBar
-        running={run != null}
-        playing={playing}
-        done={run?.exec.done ?? false}
-        onRun={start}
-        onPlay={() => setPlaying((p) => !p)}
-        onStep={() => step()}
-        onReset={reset}
-        onExit={exit}
-      />
+      {interactive ? (
+        <>
+          <RunBar
+            running={run != null}
+            playing={playing}
+            done={run?.exec.done ?? false}
+            onRun={start}
+            onPlay={() => setPlaying((p) => !p)}
+            onStep={() => step()}
+            onReset={reset}
+            onExit={exit}
+          />
 
-      {run ? (
-        <RunState
-          exec={run.exec}
-          choices={choices}
-          auto={auto}
-          changed={changed}
-          onChoose={(t) => step(t)}
-        />
-      ) : (
-        <SetupState rows={setupRows} onEdit={editVar} />
-      )}
+          {run ? (
+            <RunState
+              exec={run.exec}
+              choices={choices}
+              auto={auto}
+              changed={changed}
+              onChoose={(t) => step(t)}
+            />
+          ) : (
+            <SetupState rows={setupRows} onEdit={editVar} />
+          )}
+        </>
+      ) : null}
 
       <div style={{ overflow: "auto", paddingBottom: 12 }}>
         <div style={{ position: "relative", width: diagram.width, height: diagram.height, minWidth: "100%" }}>

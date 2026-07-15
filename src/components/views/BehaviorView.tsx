@@ -16,7 +16,7 @@ import {
   type StepLoc,
 } from "../../model/flowEdit";
 import { nextId } from "../../model/ids";
-import { useStore, type BehaviorDiagram } from "../../state/store";
+import { useStore, type BehaviorDiagram, type BehaviorMode } from "../../state/store";
 import type { AltPath, Component, Flow, UseCase } from "../../types";
 import { Icon } from "../icons";
 import { useConfirm } from "../useConfirm";
@@ -57,138 +57,336 @@ export function BehaviorView() {
   }
 
   return (
-    <div style={{ padding: "20px 26px 64px" }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        {project.useCases.map((u) => (
-          <UcTab key={u.id} uc={u} active={u.id === ucId} onClick={() => setUcId(u.id)} />
-        ))}
-      </div>
-      {uc ? <FlowPanel uc={uc} /> : null}
-    </div>
+    <div style={{ padding: "20px 26px 64px" }}>{uc ? <FlowPanel uc={uc} onSelectUc={setUcId} /> : null}</div>
   );
 }
 
-function UcTab({ uc, active, onClick }: { uc: UseCase; active: boolean; onClick: () => void }) {
-  const project = useStore((s) => s.project);
-  const hasFlow = flowOfUseCase(project, uc) != null;
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 13px",
-        border: `1px solid ${active ? "var(--accent)" : "rgba(var(--line),.12)"}`,
-        borderRadius: 9,
-        background: active ? "var(--accent-bg)" : "var(--surface)",
-        color: active ? "var(--accent-ink)" : "var(--sub)",
-        font: `${active ? 500 : 400} 12.5px 'IBM Plex Sans'`,
-        cursor: "pointer",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <span
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          background: hasFlow ? "oklch(0.62 0.14 150)" : "var(--faint)",
-        }}
-      />
-      <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11.5 }}>{uc.id}</span>
-      {uc.title}
-    </button>
-  );
-}
-
-function FlowPanel({ uc }: { uc: UseCase }) {
+// One use case at a time. The selector + mode switch sit in a single header
+// band; the body below shows exactly one of the three tasks (author the steps,
+// read the diagram, or simulate a run) full-width, rather than stacking the
+// editor, diagram, and run controls side by side.
+function FlowPanel({ uc, onSelectUc }: { uc: UseCase; onSelectUc: (id: string) => void }) {
   const project = useStore((s) => s.project);
   const ensureFlowForUseCase = useStore((s) => s.ensureFlowForUseCase);
   const flow = flowOfUseCase(project, uc);
 
-  if (!flow) {
-    return (
-      <div
-        style={{
-          border: "1px dashed rgba(var(--line),.2)",
-          borderRadius: 12,
-          padding: "28px 24px",
-          textAlign: "center",
-          background: "var(--surface2)",
-        }}
-      >
-        <div style={{ font: "500 14px 'IBM Plex Sans'", color: "var(--ink)", marginBottom: 6 }}>
-          No flow yet for {uc.id}
-        </div>
-        <p style={{ margin: "0 0 16px", font: "400 12.5px/1.55 'IBM Plex Sans'", color: "var(--sub)" }}>
-          A flow captures the ordered activities — and who performs them — that realise this use case.
-        </p>
-        <button
-          onClick={() => void ensureFlowForUseCase(uc.id)}
-          style={{
-            padding: "9px 15px",
-            border: "none",
-            borderRadius: 8,
-            background: "var(--ink)",
-            color: "var(--bg)",
-            font: "500 13px 'IBM Plex Sans'",
-            cursor: "pointer",
-          }}
-        >
-          Create flow
-        </button>
-      </div>
-    );
-  }
+  const mode = useStore((s) => s.prefs.behaviorMode);
+  const setPrefs = useStore((s) => s.setPrefs);
+  const setMode = (behaviorMode: BehaviorMode) => setPrefs({ behaviorMode });
 
-  // Steps on the left (the editor), the derived activity diagram on the right.
-  // The list needs far less width than it used to claim, so splitting frees the
-  // right half for the graph. Remount both per flow so per-flow UI state (which
-  // branches are collapsed) and the diagram reset cleanly on flow switch.
   return (
-    <div style={{ display: "flex", gap: 22, alignItems: "flex-start" }}>
-      <div style={{ flex: "1 1 0", minWidth: 460 }}>
-        <FlowEditor key={flow.id} flow={flow} uc={uc} />
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <UseCaseSelect useCases={project.useCases} value={uc.id} onChange={onSelectUc} />
+        <div style={{ flex: 1 }} />
+        {flow ? <ModeSwitch mode={mode} onChange={setMode} /> : null}
       </div>
-      <DiagramPane flow={flow} />
+
+      {!flow ? (
+        <NoFlow uc={uc} onCreate={() => void ensureFlowForUseCase(uc.id)} />
+      ) : mode === "build" ? (
+        <FlowEditor key={flow.id} flow={flow} uc={uc} />
+      ) : mode === "diagram" ? (
+        <DiagramView key={flow.id} flow={flow} uc={uc} />
+      ) : (
+        <RunView key={flow.id} flow={flow} uc={uc} />
+      )}
     </div>
   );
 }
 
-// The right pane: a toggle between the two derived diagrams of this flow. The
-// activity diagram is executable (its own Run controls); the sequence diagram is
-// a read-only actor/component interaction view.
-function DiagramPane({ flow }: { flow: Flow }) {
+function NoFlow({ uc, onCreate }: { uc: UseCase; onCreate: () => void }) {
+  return (
+    <div
+      style={{
+        border: "1px dashed rgba(var(--line),.2)",
+        borderRadius: 12,
+        padding: "28px 24px",
+        textAlign: "center",
+        background: "var(--surface2)",
+      }}
+    >
+      <div style={{ font: "500 14px 'IBM Plex Sans'", color: "var(--ink)", marginBottom: 6 }}>
+        No flow yet for {uc.id}
+      </div>
+      <p style={{ margin: "0 0 16px", font: "400 12.5px/1.55 'IBM Plex Sans'", color: "var(--sub)" }}>
+        A flow captures the ordered activities — and who performs them — that realise this use case.
+      </p>
+      <button
+        onClick={onCreate}
+        style={{
+          padding: "9px 15px",
+          border: "none",
+          borderRadius: 8,
+          background: "var(--ink)",
+          color: "var(--bg)",
+          font: "500 13px 'IBM Plex Sans'",
+          cursor: "pointer",
+        }}
+      >
+        Create flow
+      </button>
+    </div>
+  );
+}
+
+// Diagram mode: the derived diagram of this flow, full-width and read-only, with
+// the activity/sequence toggle. The activity diagram is rendered non-interactive
+// here (no Run controls) — simulating lives in Run mode.
+function DiagramView({ flow, uc }: { flow: Flow; uc: UseCase }) {
   const kind = useStore((s) => s.prefs.behaviorDiagram);
   const setPrefs = useStore((s) => s.setPrefs);
   const setKind = (behaviorDiagram: BehaviorDiagram) => setPrefs({ behaviorDiagram });
 
   return (
-    <div
-      style={{
-        flex: "1 1 0",
-        minWidth: 0,
-        position: "sticky",
-        top: 4,
-        alignSelf: "flex-start",
-        borderLeft: "1px solid rgba(var(--line),.08)",
-        paddingLeft: 22,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <DiagramToggle kind={kind} onChange={setKind} />
-        <span style={{ font: "400 11px 'IBM Plex Sans'", color: "var(--faint)" }}>
-          {kind === "activity"
-            ? "derived from steps & guards"
-            : "derived from activity owners & actors"}
-        </span>
-      </div>
+    <div>
+      <FlowIdentity
+        uc={uc}
+        flow={flow}
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <DiagramToggle kind={kind} onChange={setKind} />
+            <span style={{ font: "400 11px 'IBM Plex Sans'", color: "var(--faint)" }}>
+              {kind === "activity"
+                ? "derived from steps & guards"
+                : "derived from activity owners & actors"}
+            </span>
+          </div>
+        }
+      />
       {kind === "activity" ? (
-        <FlowDiagram key={flow.id} flow={flow} />
+        <FlowDiagram key={flow.id} flow={flow} interactive={false} />
       ) : (
         <SequenceDiagram key={flow.id} flow={flow} />
       )}
+    </div>
+  );
+}
+
+// Run mode: the executable activity diagram (its own Run / state controls),
+// full-width. Sequence isn't executable, so this is activity-only.
+function RunView({ flow, uc }: { flow: Flow; uc: UseCase }) {
+  return (
+    <div>
+      <FlowIdentity
+        uc={uc}
+        flow={flow}
+        right={
+          <span style={{ font: "400 11px 'IBM Plex Sans'", color: "var(--faint)" }}>
+            simulate the flow — set the starting state, then walk the token through
+          </span>
+        }
+      />
+      <FlowDiagram key={flow.id} flow={flow} />
+    </div>
+  );
+}
+
+// The flow-identity line shared by Diagram and Run modes (Build mode carries its
+// own header, with the editing controls). Title, the clickable FL id, and any
+// mode-specific controls on the right.
+function FlowIdentity({ uc, flow, right }: { uc: UseCase; flow: Flow; right?: React.ReactNode }) {
+  const select = useStore((s) => s.select);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+      <div style={{ font: "600 15px 'IBM Plex Sans'", color: "var(--ink)" }}>{uc.title}</div>
+      <span
+        onClick={() => select("flow", flow.id)}
+        style={{
+          font: "500 11px 'IBM Plex Mono'",
+          color: "var(--accent-ink)",
+          background: "var(--accent-bg)",
+          padding: "2px 7px",
+          borderRadius: 5,
+          cursor: "pointer",
+        }}
+      >
+        {flow.id}
+      </span>
+      <div style={{ flex: 1 }} />
+      {right}
+    </div>
+  );
+}
+
+// Use-case selector — a compact dropdown replacing the old chip band. Each row
+// carries the green/grey dot marking whether that use case already has a flow.
+function UseCaseSelect({
+  useCases,
+  value,
+  onChange,
+}: {
+  useCases: UseCase[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const project = useStore((s) => s.project);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const current = useCases.find((u) => u.id === value) ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const dot = (has: boolean) => (
+    <span
+      style={{
+        flex: "none",
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        background: has ? "oklch(0.62 0.14 150)" : "var(--faint)",
+      }}
+    />
+  );
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", minWidth: 300, maxWidth: 460 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          width: "100%",
+          padding: "9px 12px",
+          border: `1px solid ${open ? "var(--accent)" : "rgba(var(--line),.14)"}`,
+          borderRadius: 9,
+          background: "var(--surface)",
+          color: "var(--ink)",
+          font: "500 13px 'IBM Plex Sans'",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        {current ? dot(flowOfUseCase(project, current) != null) : null}
+        <span style={{ font: "500 11.5px 'IBM Plex Mono'", color: "var(--sub)", flex: "none" }}>
+          {current?.id}
+        </span>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {current?.title ?? "Select a use case"}
+        </span>
+        <Icon name="chevron" size={14} style={{ transform: open ? "rotate(180deg)" : undefined, flex: "none" }} />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            zIndex: 30,
+            maxHeight: 360,
+            overflowY: "auto",
+            border: "1px solid rgba(var(--line),.14)",
+            borderRadius: 9,
+            background: "var(--surface)",
+            boxShadow: "0 8px 24px rgba(var(--line),.14)",
+            padding: 4,
+          }}
+        >
+          {useCases.map((u) => {
+            const active = u.id === value;
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => {
+                  onChange(u.id);
+                  setOpen(false);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 9,
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 9px",
+                  border: "none",
+                  borderRadius: 7,
+                  background: active ? "var(--accent-bg)" : "transparent",
+                  color: active ? "var(--accent-ink)" : "var(--ink)",
+                  font: `${active ? 500 : 400} 12.5px 'IBM Plex Sans'`,
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = "rgba(var(--line),.06)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                {dot(flowOfUseCase(project, u) != null)}
+                <span style={{ font: "500 11px 'IBM Plex Mono'", color: active ? "var(--accent-ink)" : "var(--sub)", flex: "none" }}>
+                  {u.id}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {u.title}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The Build · Diagram · Run segmented control that chooses which task is primary.
+function ModeSwitch({ mode, onChange }: { mode: BehaviorMode; onChange: (m: BehaviorMode) => void }) {
+  const options: { value: BehaviorMode; label: string; icon: "list" | "diagram" | "play" }[] = [
+    { value: "build", label: "Build", icon: "list" },
+    { value: "diagram", label: "Diagram", icon: "diagram" },
+    { value: "run", label: "Run", icon: "play" },
+  ];
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        padding: 2,
+        gap: 2,
+        border: "1px solid rgba(var(--line),.11)",
+        borderRadius: 8,
+        background: "var(--surface2)",
+      }}
+    >
+      {options.map((o) => {
+        const on = o.value === mode;
+        return (
+          <button
+            key={o.value}
+            onClick={() => onChange(o.value)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 13px",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              font: "500 12.5px 'IBM Plex Sans'",
+              background: on ? "var(--surface)" : "transparent",
+              color: on ? "var(--ink)" : "var(--sub)",
+              boxShadow: on ? "0 1px 2px rgba(var(--line),.08)" : "none",
+            }}
+          >
+            <Icon name={o.icon} size={14} />
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

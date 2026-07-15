@@ -34,6 +34,8 @@ export type StructureShowMode = "hierarchy" | "connections" | "both";
 export type TraceColumnKind = "need" | "use-case" | "requirement" | "test";
 /** Which derived diagram the Behaviour view's right pane shows. */
 export type BehaviorDiagram = "activity" | "sequence";
+/** Which of the behaviour view's three tasks is primary and full-width. */
+export type BehaviorMode = "build" | "diagram" | "run";
 
 /**
  * Display choices made in a view's toolbar (structure layout, traceability
@@ -52,6 +54,8 @@ export interface ViewPrefs {
   behaviorUseCase: string | null;
   /** Which derived diagram the behaviour view's right pane shows. */
   behaviorDiagram: BehaviorDiagram;
+  /** Which of the behaviour view's three tasks is primary. */
+  behaviorMode: BehaviorMode;
 }
 
 const PREFS_KEY = "throughline.viewPrefs";
@@ -63,6 +67,7 @@ const DEFAULT_PREFS: ViewPrefs = {
   traceStakeholder: null,
   behaviorUseCase: null,
   behaviorDiagram: "activity",
+  behaviorMode: "build",
 };
 
 function loadPrefs(): ViewPrefs {

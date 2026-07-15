@@ -17,6 +17,8 @@ export type IconName =
   | "back"
   | "check"
   | "chevron"
+  | "list"
+  | "play"
   | "grip"
   | "focus"
   | "folder"
@@ -135,6 +137,19 @@ function shape(name: IconName, color: string, stroke: Record<string, unknown>) {
       return <path d="M3.8 9.4 7.2 13 14.2 5.4" {...stroke} />;
     case "chevron":
       return <path d="M4.5 6.75 9 11.25l4.5-4.5" {...stroke} />;
+    case "list":
+      // Stacked rows — the ordered step list you author in Build mode.
+      return (
+        <>
+          <path d="M6 5h9M6 9h9M6 13h9" {...stroke} />
+          <circle cx={3.2} cy={5} r={0.9} fill={color} />
+          <circle cx={3.2} cy={9} r={0.9} fill={color} />
+          <circle cx={3.2} cy={13} r={0.9} fill={color} />
+        </>
+      );
+    case "play":
+      // A filled triangle — walking the token through in Run mode.
+      return <path d="M5.5 3.8 14 9l-8.5 5.2Z" fill={color} stroke={color} strokeWidth={1.4} strokeLinejoin="round" />;
     case "grip":
       return (
         <>
