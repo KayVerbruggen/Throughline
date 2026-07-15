@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { composeEars } from "../../model/ears";
-import { chainOf, needWarning, requirementWarning, testWarning } from "../../model/trace";
+import { chainOf, needWarning, requirementWarning, testWarning, traceEdges, type TraceEdge } from "../../model/trace";
 import { useStore } from "../../state/store";
 import type { ArtifactKind, Project, SpineArtifact, Test } from "../../types";
 import { EARS_LABEL, EarsBadge, MoscowBadge, StatusBadge, TestResultBadge } from "../badges";
@@ -21,26 +21,8 @@ const COLUMN_META: Record<ColumnKind, { icon: IconName; title: string; label: st
   test: { icon: "test", title: "Tests", label: "Tests" },
 };
 
-interface Edge {
-  from: string;
-  to: string;
-}
-interface EdgePath extends Edge {
+interface EdgePath extends TraceEdge {
   d: string;
-}
-
-function edgesOf(project: Project): Edge[] {
-  const edges: Edge[] = [];
-  for (const u of project.useCases) {
-    for (const n of u.trace) edges.push({ from: n, to: u.id });
-  }
-  for (const r of project.requirements) {
-    for (const u of r.trace) edges.push({ from: u, to: r.id });
-  }
-  for (const t of project.tests) {
-    for (const r of t.trace) edges.push({ from: r, to: t.id });
-  }
-  return edges;
 }
 
 function findArtifact(project: Project, id: string): TraceNode | null {
@@ -110,6 +92,8 @@ export function TraceabilityView() {
   // drops its whole column (and its edges, which measure() skips automatically).
   const traceColumns = useStore((s) => s.prefs.traceColumns);
   const visibleKinds = useMemo(() => new Set(traceColumns), [traceColumns]);
+  // Direct edges plus indirect ones that bridge any hidden columns.
+  const edges = useMemo(() => traceEdges(project, visibleKinds), [project, visibleKinds]);
   const [paths, setPaths] = useState<EdgePath[]>([]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -125,7 +109,7 @@ export function TraceabilityView() {
     if (!container) return;
     const cRect = container.getBoundingClientRect();
     const next: EdgePath[] = [];
-    for (const edge of edgesOf(project)) {
+    for (const edge of edges) {
       const a = cardRefs.current.get(edge.from);
       const b = cardRefs.current.get(edge.to);
       if (!a || !b) continue; // one endpoint isn't currently rendered (filtered out)
@@ -139,7 +123,7 @@ export function TraceabilityView() {
       next.push({ ...edge, d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}` });
     }
     setPaths(next);
-  }, [project]);
+  }, [edges]);
 
   // Re-measure whenever the rendered set changes (project, focus) or on resize.
   useLayoutEffect(() => {
@@ -291,13 +275,17 @@ export function TraceabilityView() {
           <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 0 }}>
             {paths.map((p, i) => {
               const active = chain != null && chain.has(p.from) && chain.has(p.to);
+              // Indirect links (bridging a hidden column) read as a dotted arc,
+              // and stay a touch more visible at rest since the dots are sparse.
               return (
                 <path
                   key={i}
                   d={p.d}
                   fill="none"
-                  stroke={active ? "var(--accent)" : "rgba(var(--line),.14)"}
+                  stroke={active ? "var(--accent)" : p.indirect ? "rgba(var(--line),.24)" : "rgba(var(--line),.14)"}
                   strokeWidth={active ? 1.8 : 1.2}
+                  strokeDasharray={p.indirect ? "1.5 4" : undefined}
+                  strokeLinecap={p.indirect ? "round" : undefined}
                   opacity={chain && !active ? 0.3 : 1}
                 />
               );

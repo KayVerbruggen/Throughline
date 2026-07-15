@@ -7,6 +7,7 @@ import {
   requirementsForUseCase,
   testWarning,
   testsForRequirement,
+  traceEdges,
   useCasesForNeed,
 } from "./trace";
 import { emptyProject, type Need, type Project, type Requirement, type Test, type UseCase } from "../types";
@@ -72,6 +73,39 @@ describe("chainOf walks the whole spine in both directions", () => {
     const chain = chainOf(p, "N-001");
     expect(chain.has("N-002")).toBe(false);
     expect(chain.has("T-002")).toBe(false);
+  });
+});
+
+describe("traceEdges collapses hidden columns into indirect links", () => {
+  const key = (p: { from: string; to: string }) => `${p.from}->${p.to}`;
+  const ALL = new Set(["need", "use-case", "requirement", "test"]);
+
+  it("returns only direct edges when every column is visible", () => {
+    const es = traceEdges(spine(), ALL);
+    expect(es.every((e) => !e.indirect)).toBe(true);
+    expect(es.map(key).sort()).toEqual(["N-001->UC-001", "R-001->T-001", "UC-001->R-001"]);
+  });
+
+  it("bridges a single hidden column with a dotted (indirect) edge", () => {
+    // Hide use cases: N-001 → R-001 becomes indirect, R-001 → T-001 stays direct.
+    const es = traceEdges(spine(), new Set(["need", "requirement", "test"]));
+    const byKey = Object.fromEntries(es.map((e) => [key(e), e.indirect]));
+    expect(byKey).toEqual({ "N-001->R-001": true, "R-001->T-001": false });
+  });
+
+  it("bridges multiple consecutive hidden columns", () => {
+    // Hide both use cases and requirements: N-001 → T-001 across two hidden spans.
+    const es = traceEdges(spine(), new Set(["need", "test"]));
+    expect(es).toEqual([{ from: "N-001", to: "T-001", indirect: true }]);
+  });
+
+  it("emits one indirect edge when two hidden paths reach the same node", () => {
+    const p = emptyProject();
+    p.needs = [need("N-001")];
+    p.useCases = [useCase("UC-001", ["N-001"]), useCase("UC-002", ["N-001"])];
+    p.requirements = [requirement("R-001", ["UC-001", "UC-002"])];
+    const es = traceEdges(p, new Set(["need", "requirement"]));
+    expect(es).toEqual([{ from: "N-001", to: "R-001", indirect: true }]);
   });
 });
 
