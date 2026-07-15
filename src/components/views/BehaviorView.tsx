@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { createLlmClient, formatVarType, suggestGuard, type GuardSuggestion } from "../../llm";
+import {
+  createLlmClient,
+  formatVarType,
+  suggestEffects,
+  suggestGuard,
+  type EffectSuggestion,
+  type GuardSuggestion,
+} from "../../llm";
 import { activityLabel, componentOfActivity, flowOfUseCase } from "../../model/behavior";
 import {
   analyzeEffect,
@@ -1099,6 +1106,17 @@ function ActivityBehaviorEditor({
         >
           + Add effect
         </button>
+
+        <EffectSuggest
+          project={project}
+          flow={flow}
+          activityId={activityId}
+          label={activity.label}
+          ownerTitle={owner?.title}
+          effects={effects}
+          apply={apply}
+          onAccepted={setEffects}
+        />
       </div>
     </div>
   );
@@ -1418,6 +1436,205 @@ function GuardSuggest({
             >
               {proposal.newVariables.length ? "Accept & create variables" : "Accept"}
             </button>
+            <button
+              type="button"
+              onClick={() => setProposal(null)}
+              style={{
+                padding: "6px 13px",
+                border: "1px solid rgba(var(--line),.14)",
+                borderRadius: 7,
+                background: "transparent",
+                color: "var(--sub)",
+                font: "500 12px 'IBM Plex Sans'",
+                cursor: "pointer",
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Effect suggestion — turn an activity's plain-language label into a list of
+// formal, type-checked effect assignments via the LLM, and (on accept) append
+// them plus any new variables they need. Each effect is validated by
+// analyzeEffect before it's ever offered, so an invalid effect is never applied.
+// The activity is shared across flows, so accepting changes it everywhere.
+// ---------------------------------------------------------------------------
+
+function EffectSuggest({
+  project,
+  flow,
+  activityId,
+  label,
+  ownerTitle,
+  effects,
+  apply,
+  onAccepted,
+}: {
+  project: Project;
+  flow: Flow;
+  activityId: string;
+  label: string;
+  ownerTitle?: string;
+  effects: string[];
+  apply: (edit: FlowEdit) => Promise<void>;
+  onAccepted: (effects: string[]) => void;
+}) {
+  const addVariables = useStore((s) => s.addVariables);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [proposal, setProposal] = useState<EffectSuggestion | null>(null);
+
+  const accent = "oklch(0.52 0.11 62)";
+
+  const run = async () => {
+    setError(null);
+    setProposal(null);
+    const name = label.trim();
+    if (!name) {
+      setError("Name this activity first so the model knows what it does.");
+      return;
+    }
+    const client = createLlmClient();
+    if (!client.isConfigured()) {
+      setError("Add an Anthropic API key in Settings (the gear, top-right) to use suggestions.");
+      return;
+    }
+    setBusy(true);
+    const r = await suggestEffects(client, project, name, ownerTitle, flow.title);
+    setBusy(false);
+    if (r.ok) setProposal(r.value);
+    else setError(r.error);
+  };
+
+  const accept = async () => {
+    if (!proposal) return;
+    if (proposal.newVariables.length) await addVariables(proposal.newVariables);
+    // Append the suggested effects, skipping any the activity already carries.
+    const existing = effects.map((e) => e.trim()).filter(Boolean);
+    const merged = [...existing];
+    for (const eff of proposal.effects) {
+      if (!merged.includes(eff)) merged.push(eff);
+    }
+    onAccepted(merged);
+    await apply(setActivityDetails(project, flow, activityId, { effects: merged }));
+    setProposal(null);
+  };
+
+  return (
+    <div style={{ marginLeft: 28 }}>
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={busy}
+        title="Suggest formal effects from the activity's name"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "4px 9px",
+          border: `1px solid ${accent}`,
+          borderRadius: 6,
+          background: "transparent",
+          color: accent,
+          font: "500 11.5px 'IBM Plex Sans'",
+          cursor: busy ? "default" : "pointer",
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {busy ? "Thinking…" : "✨ Suggest effects"}
+      </button>
+
+      {error ? (
+        <div style={{ marginTop: 6, font: "400 11.5px/1.45 'IBM Plex Sans'", color: "var(--warn-ink)" }}>
+          {error}
+        </div>
+      ) : null}
+
+      {proposal ? (
+        <div
+          style={{
+            marginTop: 8,
+            border: `1px solid ${accent}`,
+            borderRadius: 8,
+            background: "var(--surface)",
+            padding: "10px 12px",
+          }}
+        >
+          <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 6 }}>
+            {proposal.effects.length ? "Suggested effects" : "No state changes"}
+          </div>
+          {proposal.effects.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {proposal.effects.map((eff, i) => {
+                const dup = effects.map((e) => e.trim()).includes(eff);
+                return (
+                  <div key={i} style={{ font: "400 13px 'IBM Plex Mono'", color: "var(--ink)", wordBreak: "break-word" }}>
+                    {eff}
+                    {dup ? <span style={{ color: "var(--ter)" }}> — already present</span> : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ font: "400 12.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
+              The model judged this activity to be a named step that changes no state.
+            </div>
+          )}
+
+          {proposal.newVariables.length ? (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ter)", marginBottom: 5 }}>
+                New variables to create
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {proposal.newVariables.map((nv, i) => {
+                  const comp = project.components.find((c) => c.id === nv.componentId);
+                  const handle = comp ? componentHandle(comp.title) || comp.id : nv.componentId;
+                  return (
+                    <div key={i} style={{ font: "400 12px 'IBM Plex Mono'", color: "var(--ink)" }}>
+                      <span style={{ color: accent }}>+ </span>
+                      {handle}.{nv.name}
+                      <span style={{ color: "var(--ter)" }}> : {formatVarType(nv.type)}</span>
+                      {nv.description ? (
+                        <span style={{ font: "400 11.5px 'IBM Plex Sans'", color: "var(--ter)" }}> — {nv.description}</span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {proposal.explanation ? (
+            <div style={{ marginTop: 8, font: "400 11.5px/1.5 'IBM Plex Sans'", color: "var(--sub)" }}>
+              {proposal.explanation}
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            {proposal.effects.length ? (
+              <button
+                type="button"
+                onClick={() => void accept()}
+                style={{
+                  padding: "6px 13px",
+                  border: "none",
+                  borderRadius: 7,
+                  background: "var(--ink)",
+                  color: "var(--bg)",
+                  font: "500 12px 'IBM Plex Sans'",
+                  cursor: "pointer",
+                }}
+              >
+                {proposal.newVariables.length ? "Accept & create variables" : "Accept"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setProposal(null)}
