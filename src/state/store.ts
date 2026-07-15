@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { loadLlmConfig, saveLlmConfig, type LlmConfig } from "../llm";
 import { componentHandle, renameComponentHandle } from "../model/expr";
 import { nextId } from "../model/ids";
 import { createStorage, type StorageAdapter } from "../storage";
@@ -102,6 +103,12 @@ interface AppState {
   theme: "light" | "dark";
   /** Persisted per-view display preferences (structure layout, trace filters). */
   prefs: ViewPrefs;
+  /**
+   * LLM configuration (API key + model). A reactive mirror of the value in
+   * localStorage — kept deliberately out of the project buckets so it never
+   * lands in the user's git repo (see `src/llm/config.ts`).
+   */
+  llm: LlmConfig;
 
   init: () => Promise<void>;
   reload: () => Promise<void>;
@@ -120,6 +127,8 @@ interface AppState {
   syncSystemTheme: () => void;
   /** Merge a patch into the persisted view preferences and write it through. */
   setPrefs: (patch: Partial<ViewPrefs>) => void;
+  /** Merge a patch into the LLM config and persist it (outside the project). */
+  setLlmConfig: (patch: Partial<LlmConfig>) => void;
 
   createArtifact: (kind: ArtifactKind) => Promise<void>;
   /**
@@ -386,6 +395,7 @@ export const useStore = create<AppState>((set, get) => {
     history: [],
     theme: initialTheme(),
     prefs: loadPrefs(),
+    llm: loadLlmConfig(),
 
     init: async () => {
       const { storage } = get();
@@ -459,6 +469,12 @@ export const useStore = create<AppState>((set, get) => {
         // Ignore storage failures (private mode, quota) — prefs stay in-memory.
       }
       set({ prefs });
+    },
+
+    setLlmConfig: (patch) => {
+      const llm = { ...get().llm, ...patch };
+      saveLlmConfig(llm);
+      set({ llm });
     },
 
     createArtifact: async (kind) => {

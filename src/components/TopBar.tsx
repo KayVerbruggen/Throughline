@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useStore, type ViewId } from "../state/store";
 import { Icon } from "./icons";
+import { SettingsDialog } from "./SettingsDialog";
 
 const TITLES: Record<ViewId, string> = {
   stakeholders: "Stakeholders",
@@ -35,9 +36,11 @@ export function TopBar() {
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const project = useStore((s) => s.project);
+  const llmConfigured = useStore((s) => s.llm.apiKey.trim().length > 0);
 
   const [searchFocus, setSearchFocus] = useState(false);
   const [newHover, setNewHover] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const count =
     view === "stakeholders"
@@ -127,6 +130,41 @@ export function TopBar() {
       </div>
 
       <button
+        onClick={() => setSettingsOpen(true)}
+        title="Settings"
+        style={{
+          position: "relative",
+          width: 34,
+          height: 34,
+          flex: "none",
+          border: "1px solid rgba(var(--line),.11)",
+          borderRadius: 8,
+          background: "var(--surface)",
+          color: "var(--sub)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon name="settings" size={16} />
+        {!llmConfigured ? (
+          <span
+            title="No AI key configured"
+            style={{
+              position: "absolute",
+              top: 6,
+              right: 6,
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "oklch(0.68 0.16 55)",
+            }}
+          />
+        ) : null}
+      </button>
+
+      <button
         onClick={toggleTheme}
         title={theme === "light" ? "Switch to dark" : "Switch to light"}
         style={{
@@ -171,6 +209,8 @@ export function TopBar() {
           {newLabel}
         </button>
       ) : null}
+
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </header>
   );
 }

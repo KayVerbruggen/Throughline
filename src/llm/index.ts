@@ -3,7 +3,7 @@ import type { LlmClient } from "./types";
 
 export type { CompletionRequest, CompletionResult, LlmClient } from "./types";
 export type { LlmConfig } from "./config";
-export { DEFAULT_MODEL, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
+export { DEFAULT_MODEL, MODEL_OPTIONS, emptyLlmConfig, loadLlmConfig, saveLlmConfig } from "./config";
 
 /**
  * Pick the LLM client for the current runtime. Today both `vite dev` and the

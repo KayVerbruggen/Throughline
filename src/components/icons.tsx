@@ -26,7 +26,8 @@ export type IconName =
   | "glossary"
   | "test"
   | "sun"
-  | "moon";
+  | "moon"
+  | "settings";
 
 interface IconProps {
   name: IconName;
@@ -211,5 +212,15 @@ function shape(name: IconName, color: string, stroke: Record<string, unknown>) {
       );
     case "moon":
       return <path d="M14.5 10.6A6 6 0 0 1 7.4 3.5a6 6 0 1 0 7.1 7.1Z" {...stroke} />;
+    case "settings":
+      // Sliders — app configuration / controls.
+      return (
+        <>
+          <path d="M3 5h12M3 9h12M3 13h12" {...stroke} />
+          <circle cx={11} cy={5} r={1.9} fill="var(--surface)" {...stroke} />
+          <circle cx={6.5} cy={9} r={1.9} fill="var(--surface)" {...stroke} />
+          <circle cx={12} cy={13} r={1.9} fill="var(--surface)" {...stroke} />
+        </>
+      );
   }
 }

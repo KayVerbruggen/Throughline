@@ -23,6 +23,16 @@ const CONFIG_KEY = "throughline.llm";
 /** Fast, capable default for in-app suggestions; overridable in settings. */
 export const DEFAULT_MODEL = "claude-sonnet-5";
 
+/**
+ * Suggested models for the settings picker (the field also accepts a
+ * hand-typed id, so this list can lag new releases without blocking anyone).
+ */
+export const MODEL_OPTIONS = [
+  "claude-sonnet-5",
+  "claude-opus-4-8",
+  "claude-haiku-4-5-20251001",
+] as const;
+
 export function emptyLlmConfig(): LlmConfig {
   return { apiKey: "", model: DEFAULT_MODEL };
 }
