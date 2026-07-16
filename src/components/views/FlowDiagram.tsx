@@ -24,6 +24,7 @@ import {
 } from "../../model/interpret";
 import { useStore } from "../../state/store";
 import type { Flow } from "../../types";
+import { Icon } from "../icons";
 
 // The guarded transitions are the interesting edges; colour them with the same
 // amber the Behaviour view uses for alternate paths. The sequential spine stays
@@ -655,6 +656,50 @@ const RING = "0 0 0 2px var(--accent), 0 0 0 6px var(--accent-bg)";
 
 function Node({ node, current, dim }: { node: DiagramNode; current: boolean; dim: boolean }) {
   const opacity = dim ? 0.5 : 1;
+
+  if (node.kind === "invoke") {
+    // A subflow call — a single opaque node (the callee isn't expanded inline),
+    // set apart from activities by a dashed accent frame + the subflow glyph.
+    return (
+      <div
+        title={`Calls ${node.label}`}
+        style={{
+          position: "absolute",
+          left: node.x,
+          top: node.y,
+          width: node.w,
+          height: node.h,
+          border: "1.5px dashed rgba(var(--line),.32)",
+          borderRadius: 10,
+          background: "var(--accent-bg)",
+          boxShadow: current ? RING : "0 1px 3px rgba(var(--line),.05)",
+          padding: "0 12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          overflow: "hidden",
+          opacity,
+        }}
+      >
+        <span style={{ flex: "none", color: "var(--accent-ink)", display: "flex" }}>
+          <Icon name="subflow" size={15} />
+        </span>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            font: "500 12.5px 'IBM Plex Sans'",
+            color: "var(--accent-ink)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {node.label}
+        </span>
+      </div>
+    );
+  }
 
   if (node.kind !== "activity") {
     const isStart = node.kind === "start";

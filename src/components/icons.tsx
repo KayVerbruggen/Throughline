@@ -20,6 +20,7 @@ export type IconName =
   | "list"
   | "play"
   | "grip"
+  | "subflow"
   | "focus"
   | "folder"
   | "decision"
@@ -96,6 +97,15 @@ function shape(name: IconName, color: string, stroke: Record<string, unknown>) {
           <rect x={2.4} y={3} width={7} height={5} rx={2.5} {...stroke} />
           <rect x={8.6} y={10} width={7} height={5} rx={2.5} {...stroke} />
           <path d="M6 8v1.2a2 2 0 0 0 2 2h1.1" {...stroke} />
+        </>
+      );
+    case "subflow":
+      // A branch arrow diving into a nested box — a call into another flow.
+      return (
+        <>
+          <path d="M4 3v5.5a2 2 0 0 0 2 2h3.2" {...stroke} />
+          <path d="M7.4 8.4 10 10.9 7.4 13.4" {...stroke} />
+          <rect x={11.2} y={8.4} width={4.4} height={5} rx={1.4} {...stroke} />
         </>
       );
     case "trace":

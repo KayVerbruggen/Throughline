@@ -14,7 +14,13 @@ import {
   type FormalizationPlan,
   type GuardSuggestion,
 } from "../../llm";
-import { activityLabel, componentOfActivity, flowOfUseCase } from "../../model/behavior";
+import {
+  activityLabel,
+  componentOfActivity,
+  flowOfUseCase,
+  useCaseOfFlow,
+} from "../../model/behavior";
+import { flowsInCycle, invokedFlow, stepKind } from "../../model/subflow";
 import {
   analyzeEffect,
   analyzeGuard,
@@ -30,6 +36,7 @@ import {
   moveStep,
   setActivityDetails,
   setStepComponent,
+  setStepInvoke,
   setStepLabel,
   updateAlternate,
   type FlowEdit,
@@ -550,6 +557,27 @@ function FlowEditor({ flow, uc }: { flow: Flow; uc: UseCase }) {
 
       <FormalizeFlow project={project} flow={flow} upsertArtifact={upsertArtifact} />
 
+      {flowsInCycle(project).has(flow.id) && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            margin: "0 0 12px",
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: "color-mix(in oklch, var(--danger, #c0392b) 10%, transparent)",
+            border: "1px solid color-mix(in oklch, var(--danger, #c0392b) 35%, transparent)",
+            font: "500 12px 'IBM Plex Sans'",
+            color: "var(--danger, #c0392b)",
+          }}
+        >
+          <Icon name="warn" size={15} />
+          This use case calls into itself through a subflow cycle. The call is left
+          unexpanded to stay well-formed — remove a call to break the loop.
+        </div>
+      )}
+
       {/* Main flow, with each alternate rendered beneath its branch point. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }} {...dropZoneProps(mainDrag)}>
         {flow.main.map((actId, i) => (
@@ -708,8 +736,17 @@ function StepRow({
 }) {
   const project = useStore((s) => s.project);
   const upsertArtifact = useStore((s) => s.upsertArtifact);
+  const setPrefs = useStore((s) => s.setPrefs);
   const [armed, setArmed] = useState(false);
   const [showBehavior, setShowBehavior] = useState(false);
+
+  // A step is either an activity (owned by a component) or a subflow invoke
+  // (a call into another use case's flow). The invoke branch renders a call
+  // chip instead of the label field + ƒ editor.
+  const isInvoke = stepKind(activityId) === "invoke";
+  const callee = isInvoke ? invokedFlow(project, activityId) : null;
+  const calleeUc = callee ? useCaseOfFlow(project, callee) : null;
+  const calleeMissing = isInvoke && !callee;
 
   const owner = componentOfActivity(project, activityId);
   const activity = owner?.activities.find((a) => a.id === activityId) ?? null;
@@ -731,7 +768,15 @@ function StepRow({
     }
   }
 
-  const onComponent = async (value: string) => {
+  // Use cases (other than this flow's) whose behaviour this step could call.
+  const callableUseCases = project.useCases.filter((u) => u.flow && u.flow !== flow.id);
+
+  const onStepTarget = async (value: string) => {
+    // A "Call a use case" option carries the callee flow id (FL-xxx).
+    if (stepKind(value) === "invoke") {
+      await apply(setStepInvoke(project, flow, loc, index, value));
+      return;
+    }
     if (value === NEW_COMPONENT) {
       const name = window.prompt("New component name", "New Component");
       if (!name || !name.trim()) return;
@@ -755,6 +800,11 @@ function StepRow({
       return;
     }
     await apply(setStepComponent(project, flow, loc, index, value));
+  };
+
+  // Jump the Behaviour view into the called use case's flow.
+  const openCallee = () => {
+    if (calleeUc) setPrefs({ behaviorUseCase: calleeUc.id });
   };
 
   return (
@@ -829,18 +879,50 @@ function StepRow({
         {number}
       </span>
 
-      <ActivityField
-        flow={flow}
-        loc={loc}
-        index={index}
-        activityId={activityId}
-        owner={owner}
-        apply={apply}
-      />
+      {isInvoke ? (
+        <button
+          type="button"
+          onClick={openCallee}
+          disabled={!calleeUc}
+          title={calleeUc ? "Open this use case's flow" : undefined}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            minWidth: 0,
+            padding: "7px 10px",
+            border: `1px dashed ${calleeMissing ? "var(--danger, #c0392b)" : "rgba(var(--line),.22)"}`,
+            borderRadius: 8,
+            background: "var(--accent-bg)",
+            font: "500 13px 'IBM Plex Sans'",
+            color: calleeMissing ? "var(--danger, #c0392b)" : "var(--accent-ink)",
+            cursor: calleeUc ? "pointer" : "default",
+            textAlign: "left",
+          }}
+        >
+          <Icon name="subflow" size={15} />
+          <span style={{ font: "500 10px 'IBM Plex Mono'", letterSpacing: ".05em", textTransform: "uppercase", opacity: 0.7 }}>
+            Calls
+          </span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {calleeMissing ? `${activityId} (missing)` : calleeUc?.title || callee?.title || activityId}
+          </span>
+        </button>
+      ) : (
+        <ActivityField
+          flow={flow}
+          loc={loc}
+          index={index}
+          activityId={activityId}
+          owner={owner}
+          apply={apply}
+        />
+      )}
 
       <select
-        value={owner?.id ?? ""}
-        onChange={(e) => void onComponent(e.target.value)}
+        value={isInvoke ? activityId : (owner?.id ?? "")}
+        onChange={(e) => void onStepTarget(e.target.value)}
         style={{
           flex: "none",
           width: 190,
@@ -849,54 +931,70 @@ function StepRow({
           borderRadius: 8,
           background: "var(--surface)",
           font: "400 12.5px 'IBM Plex Sans'",
-          color: owner ? "var(--ink)" : "var(--ter)",
+          color: owner || isInvoke ? "var(--ink)" : "var(--ter)",
           cursor: "pointer",
           outline: "none",
         }}
       >
         <option value="">— component —</option>
-        {project.components.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.title}
-          </option>
-        ))}
-        <option value={NEW_COMPONENT}>+ New component…</option>
+        <optgroup label="Component">
+          {project.components.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.title}
+            </option>
+          ))}
+          <option value={NEW_COMPONENT}>+ New component…</option>
+        </optgroup>
+        {callableUseCases.length > 0 && (
+          <optgroup label="Call a use case">
+            {callableUseCases.map((u) => (
+              <option key={u.id} value={u.flow}>
+                {u.title}
+              </option>
+            ))}
+          </optgroup>
+        )}
       </select>
 
-      <button
-        type="button"
-        disabled={!activity}
-        title={
-          activity
-            ? hasBehavior
-              ? "Edit preconditions / effects"
-              : "Add preconditions / effects"
-            : "Name the activity first"
-        }
-        onClick={() => setShowBehavior((v) => !v)}
-        style={{
-          flex: "none",
-          width: 28,
-          height: 28,
-          border: "none",
-          borderRadius: 7,
-          cursor: activity ? "pointer" : "default",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: showBehavior ? "var(--accent-bg)" : "transparent",
-          color: !activity
-            ? "var(--faint)"
-            : hasBehavior || showBehavior
-              ? "var(--accent-ink)"
-              : "var(--ter)",
-          font: "600 13px 'IBM Plex Mono'",
-        }}
-      >
-        ƒ
-      </button>
+      {!isInvoke && (
+        <button
+          type="button"
+          disabled={!activity}
+          title={
+            activity
+              ? hasBehavior
+                ? "Edit preconditions / effects"
+                : "Add preconditions / effects"
+              : "Name the activity first"
+          }
+          onClick={() => setShowBehavior((v) => !v)}
+          style={{
+            flex: "none",
+            width: 28,
+            height: 28,
+            border: "none",
+            borderRadius: 7,
+            cursor: activity ? "pointer" : "default",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: showBehavior ? "var(--accent-bg)" : "transparent",
+            color: !activity
+              ? "var(--faint)"
+              : hasBehavior || showBehavior
+                ? "var(--accent-ink)"
+                : "var(--ter)",
+            font: "600 13px 'IBM Plex Mono'",
+          }}
+        >
+          ƒ
+        </button>
+      )}
 
-      <RowIconButton title="Remove activity" onClick={() => void apply(deleteStep(project, flow, loc, index))}>
+      <RowIconButton
+        title={isInvoke ? "Remove call" : "Remove activity"}
+        onClick={() => void apply(deleteStep(project, flow, loc, index))}
+      >
         <Icon name="trash" size={14} />
       </RowIconButton>
     </div>
