@@ -53,6 +53,13 @@ folder) are ignored by the loader — safe to keep here.
   stored here. They are derived from the flows: ten flows — one per use case —
   chain activities across components, and every back-to-back pair becomes a
   connection.
+- One flow reuses another as a **subflow**: `Formalise an alternate-path guard`
+  (FL-003) ends by *calling* `Edit and save an artifact` (FL-002) rather than
+  restating its steps — a step that holds a flow id (`FL-002`) instead of an
+  activity id. The connection derivation reaches *through* the call, so the last
+  component of the caller connects to the first of the callee (`Application
+  Store` → `Detail Panel`); the callee's own internals stay derived from its own
+  flow. This is how larger behaviours compose without duplicating steps.
 - Alternate-path guards type-check against real component variables
   (`applicationStore.dirty == false`, `expressionEngine.valid == false`), so the
   behaviour-formalisation feature is exercised on the tool itself. Those flows

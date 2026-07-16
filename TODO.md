@@ -5,6 +5,21 @@
 - [x] Show alternative flows more inline
 - [ ] Think about the formality of behavior — the ultimate goal is an executable model and generating state charts, and we're far from that today
   - e.g. add variables to components to express conditions such as `chamber.noVessels != 0` as the alternate path of UC-001
+- [x] **Subflows — a flow that calls into another flow** (modelling bigger systems)
+  - A step may hold a flow id (`FL-xxx`) instead of an activity id, meaning
+    "invoke that use case's behaviour here". Prefix-disambiguated, so no schema
+    change; storage round-trips it. Authored via a "Call a use case" option in
+    the step's picker; renders as a dashed "Calls → …" chip (Build) / node
+    (Diagram), navigable to the callee; a banner warns on invocation cycles.
+  - Structure connections derive *through* the call (caller's last component →
+    callee's entry component), so composing flows composes the system graph.
+    See `model/subflow.ts`; examples in `docs/` (FL-003→FL-002) and pound-lock
+    (FL-001→FL-006).
+  - [ ] **Next (deferred): make a call executable in Run mode.** Today the
+    interpreter treats an invoke as one opaque pass-through step (no effects).
+    Inlining the callee's sub-graph so its guards/effects mutate the shared
+    valuation — with variable scoping and loop guards — is the "how do two flows
+    combine into the actual system" correctness step, and the larger piece.
 
 ## Components
 - [ ] Think about how to reduce duplication
