@@ -144,7 +144,10 @@ export function deriveSequenceDiagram(project: Project, flow: Flow): SequenceDia
 
   flow.main.forEach((actId, i) => {
     const receiver = ownerOf(actId);
-    if (!receiver) return; // unassigned activity: nothing to place on a lifeline
+    // Unassigned activity, or a subflow invoke (no owning component) — nothing
+    // to place on a lifeline. A call is opaque in the sequence view for now;
+    // `prevMainOwnerId` is left intact so the next hand-off bridges the gap.
+    if (!receiver) return;
     const act = findActivity(project, actId);
     const init = initiatorOf(actId);
     const senderId = init

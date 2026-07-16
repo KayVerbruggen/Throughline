@@ -1,6 +1,7 @@
 import { activityLabel, componentOfActivity, findActivity } from "../model/behavior";
 import { analyzeEffect, analyzeGuard, componentHandle } from "../model/expr";
 import { nextVariableId } from "../model/ids";
+import { stepKind } from "../model/subflow";
 import type { Activity, Artifact, Component, Flow, Project, Variable } from "../types";
 import { describeComponentsForGuard, formatVarType } from "./context";
 import { completeJson, type JsonResult } from "./json";
@@ -51,10 +52,11 @@ function flowActivityIds(flow: Flow): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const id of [...flow.main, ...flow.alternates.flatMap((a) => a.steps)]) {
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      out.push(id);
-    }
+    // Skip empty slots and subflow invokes — only real activities are formalized
+    // (a call's behaviour lives in the callee's own flow).
+    if (stepKind(id) !== "activity" || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
   }
   return out;
 }

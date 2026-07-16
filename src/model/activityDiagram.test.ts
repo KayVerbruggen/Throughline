@@ -28,6 +28,40 @@ const ids = (xs: { id: string }[]) => xs.map((x) => x.id);
 const edge = (c: ReturnType<typeof deriveActivityDiagram>, from: string, to: string) =>
   c.edges.find((e) => e.from === from && e.to === to);
 
+describe("subflow invoke nodes", () => {
+  it("renders an invoke step as a single 'invoke' node labelled with the called use case", () => {
+    const p = project();
+    p.useCases = [
+      {
+        kind: "use-case",
+        id: "UC-9",
+        title: "Fill the chamber",
+        status: "draft",
+        moscow: "must",
+        trace: [],
+        actors: [],
+        stories: [],
+        preconditions: [],
+        flow: "FL-002",
+      },
+    ];
+    p.flows.push(flow("FL-002", ["ACT-002"]));
+    // Caller: activity, then a call into FL-002, then activity.
+    const caller = flow("FL-003", ["ACT-001", "FL-002", "ACT-003"]);
+    p.flows.push(caller);
+
+    const chart = deriveActivityDiagram(p, caller);
+    const node = chart.byId.get("m1");
+    expect(node?.kind).toBe("invoke");
+    expect(node?.label).toBe("Fill the chamber");
+    expect(node?.invokeFlowId).toBe("FL-002");
+    expect(node?.activityId).toBeUndefined();
+    // Still framed and sequenced like any other step.
+    expect(edge(chart, "m0", "m1")?.kind).toBe("seq");
+    expect(edge(chart, "m1", "m2")?.kind).toBe("seq");
+  });
+});
+
 describe("activity-diagram derivation", () => {
   it("frames the main path with Start and End nodes", () => {
     const chart = deriveActivityDiagram(project(), project().flows[0]);

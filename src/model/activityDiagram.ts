@@ -17,22 +17,25 @@
 // Everything here is pure and deterministic: same project + flow ⇒ same graph.
 // ---------------------------------------------------------------------------
 
-import { componentOfActivity } from "./behavior";
+import { componentOfActivity, useCaseOfFlow } from "./behavior";
+import { invokedFlow, stepKind } from "./subflow";
 import type { Flow, Project } from "../types";
 
-export type DiagramNodeKind = "start" | "end" | "activity";
+export type DiagramNodeKind = "start" | "end" | "activity" | "invoke";
 
 export interface DiagramNode {
   /** Synthetic, position-based id (e.g. "start", "m2", "AP-1#0"). Position —
    *  not activity id — so the same activity appearing twice stays two nodes. */
   id: string;
   kind: DiagramNodeKind;
-  /** Display label: the activity label, or "Start" / "End". */
+  /** Display label: the activity label, the invoked use case, or "Start"/"End". */
   label: string;
   /** Owning component id, for colour/selection (activity nodes only). */
   componentId?: string;
   /** The underlying activity id (activity nodes only). */
   activityId?: string;
+  /** The invoked flow id (invoke nodes only) — a call into another use case. */
+  invokeFlowId?: string;
   /** Vertical rank (0 = Start); ties are separated by `lane`. */
   rank: number;
   /** Horizontal lane: 0 = the main spine, ≥1 = an alternate's column. */
@@ -107,6 +110,36 @@ function laneX(lane: number, w: number): number {
   return centre - w / 2;
 }
 
+// --- step → node fields -----------------------------------------------------
+
+type StepNodeFields = Pick<
+  DiagramNode,
+  "kind" | "label" | "componentId" | "activityId" | "invokeFlowId"
+>;
+
+/**
+ * The display fields for the node a step renders as. An activity step shows its
+ * label coloured by its owning component; a subflow invoke shows the called use
+ * case (a single opaque "call" node — it is not expanded inline) so the reader
+ * sees the composition without the callee's internals flooding the diagram.
+ */
+function stepNodeFields(project: Project, stepId: string): StepNodeFields {
+  if (stepKind(stepId) === "invoke") {
+    const callee = invokedFlow(project, stepId);
+    const uc = callee ? useCaseOfFlow(project, callee) : null;
+    const label = uc?.title || callee?.title || stepId;
+    return { kind: "invoke", label, invokeFlowId: stepId };
+  }
+  const owner = componentOfActivity(project, stepId);
+  const activity = owner?.activities.find((a) => a.id === stepId) ?? null;
+  return {
+    kind: "activity",
+    label: activity?.label || "(unnamed)",
+    componentId: owner?.id,
+    activityId: stepId,
+  };
+}
+
 // --- derivation -------------------------------------------------------------
 
 interface RawEdge {
@@ -158,15 +191,10 @@ export function deriveActivityDiagram(project: Project, flow: Flow): ActivityDia
   };
 
   addNode({ id: START, kind: "start", label: "Start", rank: 0, lane: 0, w: CAP_W, h: CAP_H });
-  flow.main.forEach((actId, i) => {
-    const owner = componentOfActivity(project, actId);
-    const activity = owner?.activities.find((a) => a.id === actId) ?? null;
+  flow.main.forEach((stepId, i) => {
     addNode({
+      ...stepNodeFields(project, stepId),
       id: mainId(i),
-      kind: "activity",
-      label: activity?.label || "(unnamed)",
-      componentId: owner?.id,
-      activityId: actId,
       rank: i + 1,
       lane: 0,
       w: NODE_W,
@@ -215,17 +243,12 @@ export function deriveActivityDiagram(project: Project, flow: Flow): ActivityDia
     // Branch edge into the first alternate step carries the guard label.
     rawEdges.push({ from: mainId(alt.after), to: stepIds[0], kind: "branch", label, formal });
 
-    alt.steps.forEach((actId, j) => {
-      const owner = componentOfActivity(project, actId);
-      const activity = owner?.activities.find((a) => a.id === actId) ?? null;
+    alt.steps.forEach((stepId, j) => {
       const rank = branchRank + 1 + j;
       rankOf.set(stepIds[j], rank);
       addNode({
+        ...stepNodeFields(project, stepId),
         id: stepIds[j],
-        kind: "activity",
-        label: activity?.label || "(unnamed)",
-        componentId: owner?.id,
-        activityId: actId,
         rank,
         lane: 0, // real lane assigned below
         w: NODE_W,
