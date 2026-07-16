@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { nextActivityId, nextAltId } from "./ids";
+import { stepKind } from "./subflow";
 import type { Activity, Component, Flow, Project } from "../types";
 
 export interface FlowEdit {
@@ -93,7 +94,10 @@ export function setStepComponent(
   const arr = stepsAt(f, loc);
   const currentId = arr[index] ?? "";
 
-  if (!currentId) {
+  // An empty slot — or a subflow invoke being switched back to a regular step —
+  // gains a freshly-created activity on the chosen component. (An invoke holds
+  // no activity of its own, so there's nothing to move; the call is dropped.)
+  if (!currentId || stepKind(currentId) === "invoke") {
     const id = nextActivityId(project);
     const newActivity: Activity = { id, label: "" };
     arr[index] = id;
@@ -113,6 +117,43 @@ export function setStepComponent(
   };
   const changedTarget: Component = { ...target, activities: [...target.activities, activity] };
   return { flow: f, components: [changedOwner, changedTarget] };
+}
+
+/**
+ * Turn the step at `index` into a subflow that invokes `flowId` (a call into
+ * another use case's behaviour). The slot simply holds the target flow id; a
+ * transient empty-label activity it used to hold is garbage-collected when it
+ * becomes unreferenced, exactly as removing the step would. A named activity is
+ * left on its component (a named activity outlives any one flow).
+ */
+export function setStepInvoke(
+  project: Project,
+  flow: Flow,
+  loc: StepLoc,
+  index: number,
+  flowId: string,
+): FlowEdit {
+  const f = cloneFlow(flow);
+  const arr = stepsAt(f, loc);
+  const previousId = arr[index] ?? "";
+  arr[index] = flowId;
+
+  if (stepKind(previousId) === "activity") {
+    const activity = activityOf(project, previousId);
+    const stillUsed = referenced(flowsWith(project, f), previousId);
+    if (activity && activity.label.trim() === "" && !stillUsed) {
+      const owner = componentOwning(project, previousId);
+      if (owner) {
+        return {
+          flow: f,
+          components: [
+            { ...owner, activities: owner.activities.filter((a) => a.id !== previousId) },
+          ],
+        };
+      }
+    }
+  }
+  return { flow: f, components: [] };
 }
 
 /**
