@@ -286,7 +286,7 @@ export interface AltPath {
   guard?: string;
   after: number;
   rejoin: number;
-  /** Activity ids, in order. */
+  /** Step ids, in order — activity ids or subflow invokes, like `Flow.main`. */
   steps: string[];
 }
 
@@ -295,7 +295,13 @@ export interface Flow {
   /** e.g. "FL-001". Referenced by a Use Case via its `flow` field. */
   id: string;
   title: string;
-  /** The happy-path activity ids, in order. */
+  /**
+   * The happy-path steps, in order. Each entry is normally an activity id
+   * (`ACT-xxx`), but may instead be a *flow* id (`FL-xxx`), meaning "invoke
+   * that flow here" — a subflow / call into another use case's behaviour,
+   * reused inline (see `model/subflow.ts`). The id prefix discriminates, so
+   * this needs no schema change. "" is an unassigned slot.
+   */
   main: string[];
   alternates: AltPath[];
   created?: string;

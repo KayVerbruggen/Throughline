@@ -8,6 +8,7 @@
 // never silently drift apart.
 // ---------------------------------------------------------------------------
 
+import { stepHeads, stepTails } from "./subflow";
 import type { Activity, Component, Flow, Project, UseCase } from "../types";
 
 // --- activity / component lookups -------------------------------------------
@@ -49,24 +50,37 @@ export function useCaseOfFlow(project: Project, flow: Flow): UseCase | null {
  * Every ordered pair of activity ids that run back-to-back within a flow —
  * across the main path and each alternate's entry, internal steps, and rejoin.
  * This is the raw material for structure edges.
+ *
+ * Subflow steps (a step that invokes another flow) are transparent here: an
+ * edge into an invoke resolves to the callee's *entry* activities and an edge
+ * out of one to its *exit* activities (see `model/subflow.ts`). That is what
+ * lets structure connections flow across a call — the activity before the call
+ * links to the component the callee starts in, and the callee's last component
+ * links to whatever runs after. The callee's own internal edges are already
+ * derived when it is visited as a flow in its own right.
  */
-export function activityAdjacencies(flow: Flow): [string, string][] {
+export function activityAdjacencies(project: Project, flow: Flow): [string, string][] {
   const pairs: [string, string][] = [];
-  const push = (a: string, b: string) => {
-    if (a && b) pairs.push([a, b]);
+  // Link every activity a step can hand off *from* to every activity the next
+  // step can be entered *at*. For plain activities these are singletons and
+  // this is just [a, b]; for invokes they fan out to the callee's boundary.
+  const link = (fromStep: string, toStep: string) => {
+    for (const h of stepHeads(project, fromStep)) {
+      for (const t of stepTails(project, toStep)) if (h && t) pairs.push([h, t]);
+    }
   };
 
-  for (let i = 0; i < flow.main.length - 1; i++) push(flow.main[i], flow.main[i + 1]);
+  for (let i = 0; i < flow.main.length - 1; i++) link(flow.main[i], flow.main[i + 1]);
 
   for (const alt of flow.alternates) {
     if (alt.steps.length === 0) continue;
     // entry: the diverging main step into the first alternate step
-    if (alt.after >= 0 && alt.after < flow.main.length) push(flow.main[alt.after], alt.steps[0]);
+    if (alt.after >= 0 && alt.after < flow.main.length) link(flow.main[alt.after], alt.steps[0]);
     // internal alternate steps
-    for (let i = 0; i < alt.steps.length - 1; i++) push(alt.steps[i], alt.steps[i + 1]);
+    for (let i = 0; i < alt.steps.length - 1; i++) link(alt.steps[i], alt.steps[i + 1]);
     // rejoin back into the main flow (unless the alternate terminates)
     if (alt.rejoin >= 0 && alt.rejoin < flow.main.length) {
-      push(alt.steps[alt.steps.length - 1], flow.main[alt.rejoin]);
+      link(alt.steps[alt.steps.length - 1], flow.main[alt.rejoin]);
     }
   }
 
@@ -92,7 +106,7 @@ export function structureEdges(project: Project): StructureEdge[] {
   const byKey = new Map<string, StructureEdge>();
 
   for (const flow of project.flows) {
-    for (const [fromAct, toAct] of activityAdjacencies(flow)) {
+    for (const [fromAct, toAct] of activityAdjacencies(project, flow)) {
       const from = componentOfActivity(project, fromAct);
       const to = componentOfActivity(project, toAct);
       if (!from || !to || from.id === to.id) continue;

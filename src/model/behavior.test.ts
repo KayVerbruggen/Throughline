@@ -56,6 +56,7 @@ describe("structure connections are derived from flow adjacency (R-004)", () => 
 
   it("includes alternate-path entry, internal, and rejoin adjacencies", () => {
     const pairs = activityAdjacencies(
+      emptyProject(),
       flow("FL-001", ["ACT-001", "ACT-002", "ACT-003"], [
         { id: "AP-1", condition: "x", after: 0, rejoin: 2, steps: ["ACT-009"] },
       ]),
@@ -63,6 +64,20 @@ describe("structure connections are derived from flow adjacency (R-004)", () => 
     // main: 001→002, 002→003; alt: entry 001→009, rejoin 009→003.
     expect(pairs).toContainEqual(["ACT-001", "ACT-009"]);
     expect(pairs).toContainEqual(["ACT-009", "ACT-003"]);
+  });
+
+  it("connects components across a subflow boundary (invoke resolves to callee entry/exit)", () => {
+    const p = project();
+    // FL-002 is a two-step subflow living in C-002 then C-003.
+    p.flows.push(flow("FL-002", ["ACT-002", "ACT-004"]));
+    // A caller flow: C-001's activity, then invoke FL-002, then back to C-001.
+    p.components[0].activities.push({ id: "ACT-010", label: "e" });
+    p.flows.push(flow("FL-003", ["ACT-001", "FL-002", "ACT-010"]));
+
+    const edges = structureEdges(p).map(key).sort();
+    // Boundary edges: C-001→(FL-002 entry = C-002) and (FL-002 exit = C-003)→C-001.
+    expect(edges).toContain("C-001|C-002");
+    expect(edges).toContain("C-001|C-003");
   });
 });
 
