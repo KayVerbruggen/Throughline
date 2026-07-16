@@ -9,6 +9,7 @@ pub fn run() {
         .manage(WatcherState::default())
         .invoke_handler(tauri::generate_handler![
             storage::ensure_project,
+            storage::scaffold_docs,
             storage::read_project,
             storage::write_artifact,
             storage::delete_artifact,

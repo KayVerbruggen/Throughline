@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { Artifact, ArtifactKind, Project } from "../types";
 import { emptyProject } from "../types";
 import type { StorageAdapter } from "./adapter";
+import { PROJECT_DOC_FILES } from "./projectDocs";
 import { filenameFor, parseArtifact, serializeArtifact } from "./serialize";
 
 const DIR_KEY = "throughline.projectDir";
@@ -170,6 +171,10 @@ export class TauriStorage implements StorageAdapter {
     this.setDir(dir);
     // ensure_project uses create_dir_all, so this also creates `dir` itself.
     await invoke("ensure_project", { projectDir: dir });
+    // Make the new project self-describing: drop the format docs (root README +
+    // AGENTS + a per-folder README) so it can be read and authored without the
+    // app. Only writes files that don't already exist, so it never clobbers.
+    await invoke("scaffold_docs", { projectDir: dir, files: PROJECT_DOC_FILES });
     return true;
   }
 

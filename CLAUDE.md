@@ -17,8 +17,14 @@ You have standing authorization to create these commits without asking each time
 
 Adding a new artifact kind touches all of these layers: `types.ts`, `model/ids.ts` (`PREFIX`), `storage/serialize.ts`, `src-tauri/src/storage.rs` (`KIND_DIRS`), `state/store.ts`, a new `views/*View.tsx`, plus nav wiring in `Sidebar.tsx`/`TopBar.tsx` and rendering in `icons.tsx`/`badges.tsx`/`detail/bodies.tsx`. Treat these as one commit (see the "Expand data model" / "Add UI" split from the last cleanup for the precedent), not several.
 
+It must also gain a **format README** for its folder in `storage/projectDocs.ts` (`PROJECT_DOC_FILES`) — the human/LLM docs scaffolded into every new project; `projectDocs.test.ts` fails until the new kind's folder is covered. After editing that file, re-run `npx vite-node scripts/emit-project-docs.ts` to re-flow the docs into `docs/` and `examples/pound-lock/`.
+
 ## Self-modelling reference
 `docs/` is a Throughline project that models Throughline itself (see `docs/README.md`). Before a non-trivial data-model change, check whether it's the kind of friction already logged in `TODO.md`'s "Data-model friction" section or `docs/REVERSE-ENGINEERING-GUIDE.md` — those capture real pain points hit while building this tool.
+
+`docs/` must always be kept up to date alongside code changes — treat updating it as part of the same commit, not a follow-up.
+
+Any new feature must also be reflected in `examples/pound-lock/` so that example project stays representative of current capabilities.
 
 ## Browser-preview verification
 The Browser pane's `screenshot` action reliably times out in this environment — don't use it. Verify observable UI changes with the text-based tools instead (`read_page`, `javascript_tool` to inspect DOM/computed styles/localStorage, `read_console_messages`).

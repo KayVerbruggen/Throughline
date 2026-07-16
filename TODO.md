@@ -36,7 +36,17 @@
 - [x] There is no UI for adding traces — it just says "traces to" but I can't add new traces there
 
 ## LLM Accessibility
-- [ ] When a project is created, add instructions for LLMs (plus generic advice) into all the subfolders explaining how things work
+- [x] When a project is created, add instructions for LLMs (plus generic advice) into all the subfolders explaining how things work
+  - Done: creating a project now scaffolds format docs — a root `README.md`
+    (orientation + folder map + the "structure is derived, never stored" rule),
+    a root `AGENTS.md` (a compact generation contract for LLMs), and a
+    per-kind `README.md` in each folder documenting that kind's frontmatter
+    fields, body, and a copy-paste template. Single source of truth is
+    `src/storage/projectDocs.ts`; written by the Rust `scaffold_docs` command
+    (write-if-absent, never clobbers) from `tauriStorage.createProject`. The
+    loader skips `README.md`/`AGENTS.md` (`is_doc_file` in `storage.rs`) so they
+    aren't parsed as artifacts. Reflected into `docs/` and `examples/pound-lock/`
+    via `scripts/emit-project-docs.ts`.
 - [ ] Add instructions for LLMs reverse engineering existing codebases
   - Perhaps use SugarVita as a large example of what happens (would cost a bunch of tokens)
   - Started: `docs/` is now a Throughline project modelling Throughline itself (a self-contained reverse-engineering example), with a companion `docs/REVERSE-ENGINEERING-GUIDE.md` for future LLMs. The friction hit while writing it is captured below.

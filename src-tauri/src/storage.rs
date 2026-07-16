@@ -79,12 +79,68 @@ fn kind_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
     Ok(Path::new(project_dir).join(dir_for_kind(kind)?))
 }
 
+/// Names reserved for scaffolded format documentation, not artifacts. Matched
+/// case-insensitively so they are skipped on read and never parsed as artifacts.
+fn is_doc_file(filename: &str) -> bool {
+    let lower = filename.to_ascii_lowercase();
+    lower == "readme.md" || lower == "agents.md"
+}
+
+/// Validate that a doc subfolder is either the project root ("") or one of the
+/// known per-kind folders — so scaffolding can't write outside the project.
+fn safe_doc_subdir(subdir: &str) -> Result<&str, String> {
+    if subdir.is_empty() || KIND_DIRS.iter().any(|(_, d)| *d == subdir) {
+        Ok(subdir)
+    } else {
+        Err(format!("unknown doc subfolder: {subdir}"))
+    }
+}
+
 /// Create the project directory and the per-kind subfolders if they don't exist.
 #[tauri::command]
 pub fn ensure_project(project_dir: String) -> Result<(), String> {
     for (_, dir) in KIND_DIRS {
         let p = Path::new(&project_dir).join(dir);
         fs::create_dir_all(&p).map_err(|e| format!("creating {}: {e}", p.display()))?;
+    }
+    Ok(())
+}
+
+/// One scaffolded documentation file: a README/AGENTS explaining the file format,
+/// placed at the project root (`subdir == ""`) or inside a per-kind folder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocFile {
+    /// "" for the project root, otherwise a per-kind folder name (e.g. "needs").
+    pub subdir: String,
+    /// File name only — must be a reserved doc name (README.md / AGENTS.md).
+    pub filename: String,
+    /// Full file contents.
+    pub content: String,
+}
+
+/// Write format-documentation files into a project, **only where they don't yet
+/// exist** so a hand-edited or intentionally-removed doc is never clobbered.
+/// Used when creating a new project to make it self-describing; the loader skips
+/// these files (see `is_doc_file`).
+#[tauri::command]
+pub fn scaffold_docs(project_dir: String, files: Vec<DocFile>) -> Result<(), String> {
+    for f in &files {
+        let subdir = safe_doc_subdir(&f.subdir)?;
+        let name = safe_filename(&f.filename)?;
+        if !is_doc_file(name) {
+            return Err(format!("not a documentation filename: {name}"));
+        }
+        let folder = if subdir.is_empty() {
+            Path::new(&project_dir).to_path_buf()
+        } else {
+            Path::new(&project_dir).join(subdir)
+        };
+        fs::create_dir_all(&folder).map_err(|e| format!("creating {}: {e}", folder.display()))?;
+        let target = folder.join(name);
+        if target.exists() {
+            continue;
+        }
+        fs::write(&target, &f.content).map_err(|e| format!("writing {}: {e}", target.display()))?;
     }
     Ok(())
 }
@@ -110,6 +166,11 @@ pub fn read_project(project_dir: String) -> Result<Vec<ArtifactFile>, String> {
                 .and_then(|f| f.to_str())
                 .ok_or("bad file name")?
                 .to_string();
+            // Skip the human/LLM format docs scaffolded into each folder — they
+            // are documentation, not artifacts (see `scaffold_docs`).
+            if is_doc_file(&filename) {
+                continue;
+            }
             let content =
                 fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
             out.push(ArtifactFile {
