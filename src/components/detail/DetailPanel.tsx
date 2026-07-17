@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import { needWarning, requirementWarning, testWarning, useCaseWarning } from "../../model/trace";
 import { useStore } from "../../state/store";
@@ -342,15 +342,36 @@ function InferredToggle({ inferred, onToggle }: { inferred: boolean; onToggle: (
 }
 
 function TitleInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  // Grow the field to fit its content so a long title wraps onto multiple lines
+  // and stays fully visible, instead of scrolling out of view like a
+  // single-line input would.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
   return (
-    <input
+    <textarea
+      ref={ref}
       value={value}
+      rows={1}
       onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        // A title is a single logical line — Enter shouldn't insert a newline.
+        if (e.key === "Enter") e.preventDefault();
+      }}
       style={{
+        display: "block",
         width: "100%",
         border: "none",
         outline: "none",
-        font: "600 21px 'IBM Plex Sans'",
+        resize: "none",
+        overflow: "hidden",
+        font: "600 21px/1.25 'IBM Plex Sans'",
         letterSpacing: "-.025em",
         color: "var(--ink)",
         padding: "0 0 4px",
