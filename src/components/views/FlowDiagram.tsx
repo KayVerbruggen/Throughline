@@ -11,6 +11,8 @@ import {
   advance,
   autoStep,
   autoTransition,
+  callStack,
+  displayNodeId,
   initExec,
   initialValuation,
   isDecisionPoint,
@@ -22,8 +24,9 @@ import {
   type Value,
   type VariableRow,
 } from "../../model/interpret";
+import { useCaseOfFlow } from "../../model/behavior";
 import { useStore } from "../../state/store";
-import type { Flow } from "../../types";
+import type { Flow, Project } from "../../types";
 import { Icon } from "../icons";
 
 // The guarded transitions are the interesting edges; colour them with the same
@@ -40,7 +43,9 @@ function hueOf(id: string): number {
 
 interface RunHandle {
   exec: ExecState;
-  /** Node the token left on the last advance, for edge highlighting. */
+  /** Node the token left on the last advance, for edge highlighting. Held as a
+   *  *displayed* node id, so a step taken inside a callee (which draws no edge
+   *  in this flow's diagram) simply highlights nothing. */
   prev: string | null;
   /** Valuation before the last advance, to flag which variables just changed. */
   prevVal: Valuation | null;
@@ -100,7 +105,11 @@ export function FlowDiagram({ flow, interactive = true }: { flow: Flow; interact
       if (!r || r.exec.done) return r;
       const chosen = t ?? autoTransition(outgoing(project, flow, r.exec));
       if (!chosen) return { ...r, exec: { ...r.exec, done: true } };
-      return { exec: advance(project, flow, r.exec, chosen), prev: r.exec.nodeId, prevVal: r.exec.valuation };
+      return {
+        exec: advance(project, flow, r.exec, chosen),
+        prev: displayNodeId(r.exec),
+        prevVal: r.exec.valuation,
+      };
     });
   };
   const reset = () => {
@@ -125,7 +134,11 @@ export function FlowDiagram({ flow, interactive = true }: { flow: Flow; interact
     const id = setTimeout(() => {
       setRun((r) => {
         if (!r || r.exec.done) return r;
-        return { exec: autoStep(project, flow, r.exec), prev: r.exec.nodeId, prevVal: r.exec.valuation };
+        return {
+          exec: autoStep(project, flow, r.exec),
+          prev: displayNodeId(r.exec),
+          prevVal: r.exec.valuation,
+        };
       });
     }, 750);
     return () => clearTimeout(id);
@@ -149,8 +162,11 @@ export function FlowDiagram({ flow, interactive = true }: { flow: Flow; interact
     );
   }
 
-  const currentId = run?.exec.nodeId ?? null;
-  const activeEdge = run?.prev != null ? { from: run.prev, to: run.exec.nodeId } : null;
+  // While the token is inside a callee it has no node in *this* diagram, so the
+  // caller's call node stays lit — the run panel's breadcrumb says where it
+  // really is.
+  const currentId = run ? displayNodeId(run.exec) : null;
+  const activeEdge = run?.prev != null && currentId != null ? { from: run.prev, to: currentId } : null;
   const changed = run?.prevVal
     ? new Set(
         [...run.exec.valuation.entries()]
@@ -349,6 +365,9 @@ function RunState({
         gap: 10,
       }}
     >
+      {/* Where the token actually is, once it has descended into a subflow. */}
+      <CallStackTrail exec={exec} project={project} />
+
       {/* Live valuation: the current value of every variable, changed ones lit. */}
       <VariableTable rows={rows} changed={changed} />
 
@@ -418,6 +437,69 @@ function RunState({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// The diagram only draws the flow being viewed, so once the token descends into
+// a subflow call there's nothing on screen to highlight (the call node stays lit
+// instead). This trail names the flows the token is inside, innermost last, so
+// the reader can follow a run that crosses use cases. Hidden at the root, where
+// the diagram already tells the whole story.
+function CallStackTrail({ exec, project }: { exec: ExecState; project: Project }) {
+  if (exec.stack.length === 0) return null;
+
+  const titleOf = (flowId: string) => {
+    const f = project.flows.find((x) => x.id === flowId);
+    if (!f) return flowId;
+    return useCaseOfFlow(project, f)?.title || f.title || flowId;
+  };
+  const ids = callStack(exec);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <span
+        style={{
+          font: "500 9.5px 'IBM Plex Mono'",
+          letterSpacing: ".08em",
+          textTransform: "uppercase",
+          color: "var(--ter)",
+        }}
+      >
+        Inside subflow
+      </span>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+        {ids.map((id, i) => {
+          const deepest = i === ids.length - 1;
+          return (
+            <span key={`${id}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              {i > 0 ? (
+                <span style={{ color: "var(--faint)", font: "400 11px 'IBM Plex Sans'" }}>›</span>
+              ) : null}
+              <span
+                title={id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  background: deepest ? "var(--accent-bg)" : "var(--surface)",
+                  border: `1px solid ${deepest ? "var(--accent)" : "rgba(var(--line),.12)"}`,
+                  color: deepest ? "var(--accent-ink)" : "var(--sub)",
+                  font: `${deepest ? 500 : 400} 11.5px 'IBM Plex Sans'`,
+                  maxWidth: 220,
+                }}
+              >
+                {i > 0 ? <Icon name="subflow" size={12} /> : null}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {titleOf(id)}
+                </span>
+              </span>
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }

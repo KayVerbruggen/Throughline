@@ -4,11 +4,14 @@ import { valuationKey } from "./expr";
 import {
   advance,
   autoStep,
+  callStack,
+  displayNodeId,
   initExec,
   initialValuation,
   isDecisionPoint,
   outgoing,
   variableRows,
+  type ExecState,
   type Transition,
 } from "./interpret";
 import { emptyProject, type Activity, type Component, type Flow, type Project, type Variable } from "../types";
@@ -144,3 +147,159 @@ describe("flow interpreter", () => {
 function initExecAt(p: Project, f: Flow, nodeId: string) {
   return { ...initExec(p, f), nodeId };
 }
+
+// ---------------------------------------------------------------------------
+// Executable subflow calls
+// ---------------------------------------------------------------------------
+
+/** Run to completion, recording every node as `flowId:nodeId` so a trail shows
+ *  which flow the token was in, plus every note raised along the way. */
+function runDeep(p: Project, f: Flow) {
+  let s: ExecState = initExec(p, f);
+  const trail: string[] = [`${s.flowId}:${s.nodeId}`];
+  const notes: string[] = [];
+  const states: ExecState[] = [s];
+  while (!s.done) {
+    s = autoStep(p, f, s);
+    trail.push(`${s.flowId}:${s.nodeId}`);
+    notes.push(...s.notes);
+    states.push(s);
+  }
+  return { state: s, trail, notes, states };
+}
+
+describe("subflow calls in the interpreter", () => {
+  it("descends into a callee and its effects land in the shared valuation", () => {
+    const p = project();
+    p.flows = [flow("FL-002", ["ACT-001"])]; // callee: +1
+    const root = flow("FL-001", ["ACT-001", "FL-002"]); // +1, then call
+
+    const { state, trail } = runDeep(p, root);
+    expect(trail).toEqual([
+      "FL-001:start",
+      "FL-001:m0", // +1
+      "FL-001:m1", // parked on the call node
+      "FL-002:start", // descended
+      "FL-002:m0", // +1 — the *callee's* effect, same valuation
+      "FL-002:end",
+      "FL-001:m1", // returned to the call node
+      "FL-001:end",
+    ]);
+    expect(state.done).toBe(true);
+    expect(state.stack).toEqual([]);
+    expect(count(state)).toBe(2); // caller's +1 and callee's +1 both applied
+  });
+
+  it("evaluates a guard inside the callee against state the caller wrote", () => {
+    const p = project();
+    // The callee branches when the chamber isn't empty; only the *caller's*
+    // ACT-001 can make that true before the callee is entered.
+    p.flows = [
+      flow("FL-002", ["ACT-003"], [
+        { id: "AP-1", condition: "not clear", guard: "chamber.vesselCount != 0", after: 0, rejoin: -1, steps: ["ACT-002"] },
+      ]),
+    ];
+    const root = flow("FL-001", ["ACT-001", "FL-002"]);
+
+    const { state, trail } = runDeep(p, root);
+    expect(trail).toContain("FL-002:AP-1#0"); // the branch fired inside the callee
+    expect(count(state)).toBe(0); // +1 from the caller, -1 from the callee's branch
+
+    // With the caller's increment removed the guard is false and the callee
+    // stays on its main path.
+    const p2 = project();
+    p2.flows = p.flows;
+    const noBranch = runDeep(p2, flow("FL-001", ["ACT-003", "FL-002"]));
+    expect(noBranch.trail).not.toContain("FL-002:AP-1#0");
+    expect(count(noBranch.state)).toBe(0);
+  });
+
+  it("resumes past the call so the caller's later branches see the callee's writes", () => {
+    const p = project();
+    p.flows = [flow("FL-002", ["ACT-001"])]; // callee: +1
+    // The caller branches *after* the call, on state only the callee sets.
+    const root = flow("FL-001", ["FL-002", "ACT-003"], [
+      { id: "AP-1", condition: "not clear", guard: "chamber.vesselCount != 0", after: 0, rejoin: -1, steps: ["ACT-002"] },
+    ]);
+
+    const { state, trail } = runDeep(p, root);
+    expect(trail).toEqual([
+      "FL-001:start",
+      "FL-001:m0",
+      "FL-002:start",
+      "FL-002:m0", // callee sets count to 1
+      "FL-002:end",
+      "FL-001:m0", // back on the call node, call already made
+      "FL-001:AP-1#0", // the guard now holds, so the branch fires
+      "FL-001:end",
+    ]);
+    expect(count(state)).toBe(0);
+  });
+
+  it("nests calls, unwinding the stack in order", () => {
+    const p = project();
+    p.flows = [flow("FL-002", ["FL-003"]), flow("FL-003", ["ACT-001"])];
+    const root = flow("FL-001", ["FL-002"]);
+
+    const { state, trail, states } = runDeep(p, root);
+    expect(trail).toEqual([
+      "FL-001:start",
+      "FL-001:m0",
+      "FL-002:start",
+      "FL-002:m0",
+      "FL-003:start",
+      "FL-003:m0", // +1, two calls deep
+      "FL-003:end",
+      "FL-002:m0", // returned into FL-002
+      "FL-002:end",
+      "FL-001:m0", // returned into FL-001
+      "FL-001:end",
+    ]);
+    expect(count(state)).toBe(1);
+
+    // At the deepest point the stack names both suspended callers, and the root
+    // diagram still highlights the outermost call node.
+    const deepest = states.find((s) => s.flowId === "FL-003" && s.nodeId === "m0")!;
+    expect(callStack(deepest)).toEqual(["FL-001", "FL-002", "FL-003"]);
+    expect(displayNodeId(deepest)).toBe("m0"); // FL-001's call node
+  });
+
+  it("terminates a recursive call at the depth limit instead of hanging", () => {
+    const p = project();
+    const root = flow("FL-001", ["ACT-001", "FL-001"]); // calls itself
+    p.flows = [root];
+
+    const { state, notes } = runDeep(p, root);
+    expect(state.done).toBe(true);
+    expect(state.stack).toEqual([]); // fully unwound
+    expect(notes.some((n) => n.includes("call depth limit"))).toBe(true);
+    // Stopped by the depth cap, not the blunt step cap.
+    expect(notes.some((n) => n.includes("step limit"))).toBe(false);
+  });
+
+  it("leaves an invoke with no resolvable target as an opaque pass-through", () => {
+    const p = project();
+    p.flows = []; // FL-404 doesn't exist
+    const { state, trail } = runDeep(p, flow("FL-001", ["ACT-001", "FL-404"]));
+    expect(trail).toEqual(["FL-001:start", "FL-001:m0", "FL-001:m1", "FL-001:end"]);
+    expect(count(state)).toBe(1);
+  });
+
+  it("offers the call as the only transition, then the ordinary ones after it", () => {
+    const p = project();
+    p.flows = [flow("FL-002", ["ACT-001"])];
+    const root = flow("FL-001", ["FL-002", "ACT-003"]);
+
+    let s = initExec(p, root);
+    s = autoStep(p, root, s); // -> m0, the call node
+    const atCall = outgoing(p, root, s);
+    expect(atCall).toHaveLength(1);
+    expect(atCall[0]).toMatchObject({ kind: "call", to: "start", toFlowId: "FL-002" });
+    // A lone call is never a fork the user must resolve.
+    expect(isDecisionPoint(atCall)).toBe(false);
+
+    // Once returned, the same node offers its normal continuation instead.
+    const returned = { ...s, returned: true };
+    expect(outgoing(p, root, returned)).toEqual([{ to: "m1", kind: "seq" }]);
+  });
+});

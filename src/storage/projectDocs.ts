@@ -558,7 +558,9 @@ Each entry in \`main\` (and each alternate's \`steps\`) is one of:
 - an **activity id** (\`ACT-…\`) — defined on some component (see
   \`components/README.md\`); or
 - a **flow id** (\`FL-…\`) — a **subflow**: invoke another use case's flow inline,
-  rather than restating its steps. Connections derive *through* the call.
+  rather than restating its steps. Connections derive *through* the call, and
+  running the flow *executes* the call — the callee's guards and effects act on
+  the same component variables, then the caller resumes after the call step.
 
 ## Frontmatter
 

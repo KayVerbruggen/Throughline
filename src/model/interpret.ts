@@ -16,9 +16,26 @@
 //     it's offered as a manual choice only;
 //   • `pre` is checked and reported but does not block the step (the runner
 //     surfaces it; the consistency pass can treat it as an error).
+//
+// Subflow calls are *executed*, not stepped over. Arriving at an invoke step
+// parks the token on the call node; the next advance pushes a `CallFrame` and
+// drops the token at the callee's Start. The callee runs as an ordinary flow —
+// its guards and effects read and write the *same* valuation — and when its
+// token reaches End the frame pops, returning to the caller's call node with
+// `returned` set so the next advance continues past it instead of re-entering.
+//
+// There is deliberately no variable scoping: variables belong to *components*
+// (`C-id.name`), not to flows, so a call has nothing of its own to scope. A
+// callee mutating `chamber.vesselCount` is the same state the caller reads, which
+// is exactly the point — composing flows composes one system state.
+//
+// Recursion terminates two ways: `MAX_DEPTH` refuses to enter a call nested too
+// deep (the step degrades to the old pass-through, with a note), and `MAX_STEPS`
+// still caps total advances.
 // ---------------------------------------------------------------------------
 
 import { findActivity } from "./behavior";
+import { invokedFlow, stepKind } from "./subflow";
 import {
   END_NODE,
   START_NODE,
@@ -41,11 +58,30 @@ export type { Valuation, Value } from "./expr";
 
 /** Guard against a runaway loop (a backward rejoin whose guard never settles). */
 const MAX_STEPS = 200;
+/** How deep subflow calls may nest before an invoke degrades to a pass-through.
+ *  Bounds mutual/self recursion without capping legitimate composition. */
+const MAX_DEPTH = 12;
+
+/** A caller suspended at its invoke step while the callee runs. */
+export interface CallFrame {
+  /** The flow that made the call. */
+  flowId: string;
+  /** The invoke node in that flow to resume at when the callee returns. */
+  nodeId: string;
+}
 
 export interface ExecState {
   valuation: Valuation;
-  /** Current diagram node: START_NODE | mainNodeId(i) | altNodeId(key,j) | END_NODE. */
+  /** Current diagram node: START_NODE | mainNodeId(i) | altNodeId(key,j) | END_NODE.
+   *  Interpreted *within the current flow* (`flowId`), not necessarily the root. */
   nodeId: string;
+  /** The flow the token is executing in — the root flow, or a callee. */
+  flowId: string;
+  /** Suspended callers, outermost first; empty while in the root flow. */
+  stack: CallFrame[];
+  /** True when the token sits on an invoke node whose callee has already run, so
+   *  the next advance continues past the call instead of re-entering it. */
+  returned: boolean;
   done: boolean;
   /** Advances taken so far (for the runaway guard). */
   steps: number;
@@ -53,9 +89,17 @@ export interface ExecState {
   notes: string[];
 }
 
+/** A transition is a diagram edge, or a move across a call boundary that no
+ *  single flow's diagram draws: `call` descends into a callee, `return` pops
+ *  back to the caller's invoke node. */
+export type TransitionKind = DiagramEdgeKind | "call" | "return";
+
 export interface Transition {
   to: string;
-  kind: DiagramEdgeKind;
+  kind: TransitionKind;
+  /** The flow `to` names, when the transition crosses a call boundary
+   *  (`call`/`return`). Undefined for an ordinary within-flow edge. */
+  toFlowId?: string;
   /** Guard (preferred) or prose condition, for a branch. */
   label?: string;
   /** For a guarded branch: did its guard hold under the current valuation?
@@ -92,32 +136,81 @@ export function initialValuation(project: Project): Valuation {
   return val;
 }
 
-/** Fresh execution at Start, optionally overlaying canonical-keyed overrides. */
-export function initExec(project: Project, _flow: Flow, overrides?: Valuation): ExecState {
+/** Fresh execution at Start of `flow`, optionally overlaying canonical-keyed
+ *  overrides. `flow` is the *root* — calls descend from here. */
+export function initExec(project: Project, flow: Flow, overrides?: Valuation): ExecState {
   const valuation = initialValuation(project);
   if (overrides) for (const [k, v] of overrides) valuation.set(k, v);
-  return { valuation, nodeId: START_NODE, done: false, steps: 0, notes: [] };
+  return {
+    valuation,
+    nodeId: START_NODE,
+    flowId: flow.id,
+    stack: [],
+    returned: false,
+    done: false,
+    steps: 0,
+    notes: [],
+  };
 }
 
-// --- node ↔ activity --------------------------------------------------------
+// --- current flow -----------------------------------------------------------
+
+/**
+ * The flow the token is executing in. Every public entry point takes the *root*
+ * flow (what the view is showing); once the token has descended into a call the
+ * state's `flowId` names the real one. Falls back to the root if the callee has
+ * since been deleted mid-run.
+ */
+export function currentFlow(project: Project, root: Flow, state: ExecState): Flow {
+  if (state.flowId === root.id) return root;
+  return project.flows.find((f) => f.id === state.flowId) ?? root;
+}
+
+/** The flow ids on the stack, outermost first, ending with the current one —
+ *  the runner's "you are here" breadcrumb. */
+export function callStack(state: ExecState): string[] {
+  return [...state.stack.map((f) => f.flowId), state.flowId];
+}
+
+/** The node to highlight in the *root* flow's diagram. Inside a call that's the
+ *  outermost invoke node (the token is somewhere beneath it); otherwise the
+ *  token's own node. */
+export function displayNodeId(state: ExecState): string {
+  return state.stack.length > 0 ? state.stack[0].nodeId : state.nodeId;
+}
+
+// --- node ↔ step / activity -------------------------------------------------
 
 const MAIN_RE = /^m(\d+)$/;
 const ALT_RE = /^(.+)#(\d+)$/;
 
-/** The activity a node runs, or null for Start / End / a dangling id. */
-function activityAt(project: Project, flow: Flow, nodeId: string): Activity | null {
+/** The raw step id a node occupies (an activity id, a flow id for an invoke, or
+ *  "" for an empty slot); null for Start / End / a dangling id. */
+function stepIdAt(flow: Flow, nodeId: string): string | null {
   const m = MAIN_RE.exec(nodeId);
-  if (m) {
-    const id = flow.main[Number(m[1])];
-    return id ? findActivity(project, id) : null;
-  }
+  if (m) return flow.main[Number(m[1])] ?? null;
   const a = ALT_RE.exec(nodeId);
   if (a) {
     const alt = flow.alternates.find((x) => x.id === a[1]);
-    const id = alt?.steps[Number(a[2])];
-    return id ? findActivity(project, id) : null;
+    return alt?.steps[Number(a[2])] ?? null;
   }
   return null;
+}
+
+/** The activity a node runs, or null for Start / End / an invoke / a dangling id. */
+function activityAt(project: Project, flow: Flow, nodeId: string): Activity | null {
+  const id = stepIdAt(flow, nodeId);
+  if (!id || stepKind(id) !== "activity") return null;
+  return findActivity(project, id);
+}
+
+/** The flow an un-returned invoke node is about to call, or null when the node
+ *  isn't a pending call (not an invoke, already returned, or a dangling target). */
+function pendingCall(project: Project, flow: Flow, state: ExecState): Flow | null {
+  if (state.returned) return null;
+  const id = stepIdAt(flow, state.nodeId);
+  if (!id || stepKind(id) !== "invoke") return null;
+  return invokedFlow(project, id);
 }
 
 // --- transitions ------------------------------------------------------------
@@ -140,9 +233,28 @@ function guardHolds(project: Project, guard: string | undefined, val: Valuation)
  * the current valuation. The runner shows these (highlighting which fired); a
  * main step lists its branches first, then the sequential continue last.
  */
-export function outgoing(project: Project, flow: Flow, state: ExecState): Transition[] {
+export function outgoing(project: Project, root: Flow, state: ExecState): Transition[] {
   const { nodeId } = state;
-  if (state.done || nodeId === END_NODE) return [];
+  if (state.done) return [];
+
+  const flow = currentFlow(project, root, state);
+
+  // End of a callee: pop back to the caller's invoke node. (At the root's End
+  // there is nowhere to go — the run is over.)
+  if (nodeId === END_NODE) {
+    const frame = state.stack[state.stack.length - 1];
+    if (!frame) return [];
+    return [{ to: frame.nodeId, kind: "return", toFlowId: frame.flowId }];
+  }
+
+  // A pending subflow call takes precedence over the step's ordinary
+  // continuation: descend into the callee's Start. Refused past MAX_DEPTH, and
+  // for a dangling target, in which case the step falls through to the old
+  // opaque pass-through below.
+  const callee = pendingCall(project, flow, state);
+  if (callee && state.stack.length < MAX_DEPTH) {
+    return [{ to: START_NODE, kind: "call", toFlowId: callee.id, label: callee.title || callee.id }];
+  }
 
   const inRange = (n: number) => n >= 0 && n < flow.main.length;
   const mainOrEnd = (n: number) => (inRange(n) ? mainNodeId(n) : END_NODE);
@@ -209,13 +321,39 @@ export function isDecisionPoint(transitions: Transition[]): boolean {
 
 // --- advancing --------------------------------------------------------------
 
-/** Move the token along `t`, applying the destination activity's effects (and
- *  reporting an unmet precondition or a broken effect). Immutable. */
-export function advance(project: Project, flow: Flow, state: ExecState, t: Transition): ExecState {
+/**
+ * Move the token along `t`, applying the destination activity's effects (and
+ * reporting an unmet precondition or a broken effect). A `call` pushes the
+ * current node as a frame; a `return` pops one and lands `returned` so the
+ * caller's next advance continues past the call. Immutable.
+ */
+export function advance(project: Project, root: Flow, state: ExecState, t: Transition): ExecState {
   const notes: string[] = [];
   let valuation = state.valuation;
 
-  const act = activityAt(project, flow, t.to);
+  const flow = currentFlow(project, root, state);
+
+  // --- call boundary --------------------------------------------------------
+  let stack = state.stack;
+  let flowId = state.flowId;
+  let returned = false;
+
+  if (t.kind === "call") {
+    stack = [...stack, { flowId: state.flowId, nodeId: state.nodeId }];
+    flowId = t.toFlowId ?? state.flowId;
+  } else if (t.kind === "return") {
+    stack = stack.slice(0, -1);
+    flowId = t.toFlowId ?? state.flowId;
+    returned = true;
+  } else if (pendingCall(project, flow, state) && state.stack.length >= MAX_DEPTH) {
+    // `outgoing` refused to enter — record why rather than silently skipping.
+    notes.push(`Did not enter subflow at depth ${state.stack.length}: call depth limit reached.`);
+  }
+
+  // Effects apply in the flow the destination node belongs to, which is the
+  // callee on a call and the caller on a return.
+  const destFlow = currentFlow(project, root, { ...state, flowId });
+  const act = activityAt(project, destFlow, t.to);
   if (act) {
     if (act.pre) {
       const holds = guardHolds(project, act.pre, valuation);
@@ -229,12 +367,14 @@ export function advance(project: Project, flow: Flow, state: ExecState, t: Trans
   }
 
   const steps = state.steps + 1;
-  let done = t.to === END_NODE;
+  // Reaching End inside a callee isn't the end of the run — the next advance
+  // returns to the caller. Only the root flow's End finishes.
+  let done = t.to === END_NODE && stack.length === 0;
   if (steps >= MAX_STEPS) {
     done = true;
     notes.push("Stopped: step limit reached (possible loop).");
   }
-  return { valuation, nodeId: t.to, done, steps, notes };
+  return { valuation, nodeId: t.to, flowId, stack, returned, done, steps, notes };
 }
 
 /** One automatic step: pick the auto transition and advance. No-op at End. */

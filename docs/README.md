@@ -27,12 +27,12 @@ docs/
   stakeholders/  SH-001 … SH-004   who the tool is for
   needs/         N-001  … N-009    what they need
   use-cases/     UC-001 … UC-010   how the tool satisfies those needs
-  requirements/  R-001  … R-014    EARS "shall" statements
+  requirements/  R-001  … R-015    EARS "shall" statements
   components/    C-001  … C-012    the actual code, as a component hierarchy
   flows/         FL-001 … FL-010   one behaviour per use case, as ordered activities
   decisions/     D-001  … D-004    the architectural choices, as Y-statements
   glossary/      G-001  … G-006    the tool's domain vocabulary
-  tests/         T-001  … T-009    the automated suite verifying the requirements
+  tests/         T-001  … T-010    the automated suite verifying the requirements
 ```
 
 The app only reads those per-kind subfolders, so this README and the guide
@@ -59,7 +59,10 @@ folder) are ignored by the loader — safe to keep here.
   activity id. The connection derivation reaches *through* the call, so the last
   component of the caller connects to the first of the callee (`Application
   Store` → `Detail Panel`); the callee's own internals stay derived from its own
-  flow. This is how larger behaviours compose without duplicating steps.
+  flow. This is how larger behaviours compose without duplicating steps. A call
+  is also **executed** when the flow is run: the token descends into the callee
+  and its effects land in the same valuation, so running FL-003 really runs
+  FL-002's steps rather than stepping over them.
 - Alternate-path guards type-check against real component variables
   (`applicationStore.dirty == false`, `expressionEngine.valid == false`), so the
   behaviour-formalisation feature is exercised on the tool itself. Those flows
@@ -83,8 +86,8 @@ folder) are ignored by the loader — safe to keep here.
   allocation (T-003 → R-011), file tolerance (T-004 → R-008), guard
   type-checking (T-005 → R-006), and the Behaviour Engine — activity-diagram
   derivation (T-006), flow interpretation (T-007) and guard evaluation
-  (T-008 → R-013), plus sequence-diagram derivation (T-009 → R-014). Run them
-  with `npm run test`.
+  (T-008 → R-013), plus sequence-diagram derivation (T-009 → R-014) and subflow
+  execution (T-010 → R-015). Run them with `npm run test`.
 
 ## One honest gap
 

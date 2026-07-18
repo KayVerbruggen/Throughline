@@ -15,11 +15,22 @@
     callee's entry component), so composing flows composes the system graph.
     See `model/subflow.ts`; examples in `docs/` (FL-003→FL-002) and pound-lock
     (FL-001→FL-006).
-  - [ ] **Next (deferred): make a call executable in Run mode.** Today the
-    interpreter treats an invoke as one opaque pass-through step (no effects).
-    Inlining the callee's sub-graph so its guards/effects mutate the shared
-    valuation — with variable scoping and loop guards — is the "how do two flows
-    combine into the actual system" correctness step, and the larger piece.
+  - [x] **A call is executable in Run mode.** The interpreter keeps a *call
+    stack*: reaching an invoke step parks the token on the call node, the next
+    advance pushes a frame and drops it at the callee's Start, the callee runs as
+    an ordinary flow, and its End pops back to the call node so the caller
+    continues past it. Guards and effects act on the **same valuation** in both
+    directions — a callee's guard reads state the caller wrote, and its effects
+    are visible to the caller's later branches.
+    - No variable scoping was needed after all: variables belong to *components*
+      (`C-id.name`), not flows, so a call has nothing of its own to scope. That
+      shared state is the point — composing flows composes one system state.
+    - Recursion is bounded by a call-depth cap (a call nested too deep degrades
+      to the old pass-through and notes why), alongside the existing step cap.
+    - Run mode highlights the caller's call node while the token is inside the
+      callee, and an "Inside subflow" breadcrumb names the flows it is in.
+    - Exercised in `examples/pound-lock/`: FL-001 calls FL-006, whose guard
+      (`interlockController.chamberLevel == upper`) tests state FL-001 set.
 
 ## Components
 - [ ] Think about how to reduce duplication
