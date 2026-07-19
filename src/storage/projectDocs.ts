@@ -513,6 +513,17 @@ in some flow). The only structural links you author are:
 | \`initial\`     | string                      | Starting value for the simulator (quote numbers: \`"0"\`). |
 | \`description\` | string                      | What the variable means. |
 
+**Declare one variable over the states that can actually occur — not one per
+thing you can point at.** If two candidate variables can never legally vary
+independently, they are one variable. Two red/green signs that must never both
+be green are not \`upper: red|green\` + \`lower: red|green\` (four states, one of
+them the exact failure the signs exist to prevent) — they are
+\`permits: neither|upper|lower\`. Modelling them separately lets the project write
+down an illegal state, and forces an activity for every *combination*
+("show red at the upper reach", "show red on both reaches", …) instead of one per
+real transition. The tell: **you are writing an activity whose effects set both
+variables together.**
+
 ## Expressions
 
 References are \`<handle>.<name>\` — the handle is the camelCase of the component

@@ -33,8 +33,52 @@
       (`interlockController.chamberLevel == upper`) tests state FL-001 set.
 
 ## Components
-- [ ] Think about how to reduce duplication
+- [~] Think about how to reduce duplication
   - e.g. signal lower reach, upper reach, both, permitted reach — the "both" or "permitted" options shouldn't need to exist since they're just the previous ones combined depending on conditions
+  - Diagnosis: this was **two** problems wearing one coat.
+    - **Combination** ("show red on both" = "red upper" + "red lower"). A step
+      holds one activity, so a compound action needs its own activity restating
+      the parts — combinatorial.
+    - **Parameterisation** ("green to the *permitted* reach" = green-upper or
+      green-lower depending on state). Effects are unconditional assignments to a
+      fixed target, so a state-dependent action had nowhere to go.
+  - [x] **Most of it was a modelling mistake, not a tool gap.** Signal Lights
+    (C-007) declared one variable per physical sign (`upper: red|green`,
+    `lower: red|green`) — four representable states for a domain that permits
+    three, where the fourth is the exact safety violation the lights exist to
+    prevent. That fake independence is what forced the activity explosion. One
+    variable over the states that can occur (`permits: neither|upper|lower`)
+    collapses seven activities to four; "show red at the upper reach" stops
+    existing because red-at-a-reach is a *consequence*, not an action, and the
+    two byte-identical "show red" activities become the same single assignment.
+    Written up as pound-lock **D-007**, and as a rule in the scaffolded
+    `components/README.md` so every new project's generation contract carries it.
+  - [ ] **What's left is genuinely a tool gap: compound actions.** The collapse
+    only works when the variables are mutually exclusive. `Halt all actuators`
+    (ACT-006) sets `upstreamGate.state := closed` *and*
+    `downstreamGate.state := closed` — two components, genuinely independent, and
+    naming that compound action still means restating its parts.
+    - Favoured fix: **activity composition** — an activity lists other activities
+      (`does: [ACT-011, ACT-014]`) instead of its own effects, which derive by
+      flattening. Same composition-over-restatement move as subflows, small
+      interpreter change (flatten on apply), needs a cycle guard. Interesting
+      wrinkle: the parts live on the gates but the *action* is the controller's,
+      which is exactly the "controller commands gates" edge structure derivation
+      would want.
+    - Rejected: **multi-activity steps** (a step slot holding a list) — collides
+      with the step being the unit of component adjacency, and drags in fork/join
+      concurrency.
+    - Rejected: **conditional effects** (`when <guard>: x := y`) — hides a branch
+      inside a node, so the activity diagram stops showing the behaviour. Branches
+      belong in flow alternates where they are drawn.
+    - Deferred until a second real case appears; ACT-006 is currently the only one.
+  - Note on parameterisation: once state is one variable, a state-dependent action
+    wants to be one assignment from another variable
+    (`signalLights.permits := interlockController.chamberLevel`) — and effects
+    **already** allow that (an effect's RHS is a full expression; an enum takes the
+    same enum). It doesn't apply in the pound-lock because `chamberLevel`'s `mid`
+    isn't the same fact as `neither`, so FL-006 keeps a guarded branch. The type
+    mismatch asking that question is the system working.
 - [x] Don't like the current system structure graph layout — the columns imply a left-to-right order that doesn't actually exist
   - Also show hierarchy with the main system at the top and other components underneath
   - Implies needing two types of arcs to make the distinction
